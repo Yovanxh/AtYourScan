@@ -1511,13 +1511,16 @@ export function renderMasterAdminView(container, store) {
   render();
 
   // Initial live sync directly from Supabase Cloud
-  fetchPendingCafes();
+  if (!globalThis.IS_TEST_ENV) {
+    fetchPendingCafes();
+  }
 
   // Supabase Realtime Channel for instant cross-browser synchronization
   let realtimeChannel = null;
-  if (supabase && typeof supabase.channel === 'function') {
+  if (!globalThis.IS_TEST_ENV && supabase && typeof supabase.channel === 'function') {
+    const channelName = `cafes-realtime-master-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     realtimeChannel = supabase
-      .channel('cafes-realtime-master')
+      .channel(channelName)
       .on('postgres_changes', { event: '*', schema: 'public', table: 'cafes' }, () => {
         fetchPendingCafes();
       })
@@ -1525,9 +1528,9 @@ export function renderMasterAdminView(container, store) {
   }
 
   // 5-second polling fallback
-  const pollInterval = setInterval(() => {
+  const pollInterval = (!globalThis.IS_TEST_ENV) ? setInterval(() => {
     fetchPendingCafes();
-  }, 5000);
+  }, 5000) : null;
 
   // Return unmount cleanup function
   return () => {

@@ -4882,7 +4882,7 @@ class ReactiveStore {
    * @param {string} tenantIdOrCafeId
    * @returns {{ success: boolean, tenant?: object, cafe?: object, error?: string }}
    */
-  async approveTenantCafe(tenantIdOrCafeId) {
+  approveTenantCafe(tenantIdOrCafeId) {
     if (!this.isSuperAdmin()) {
       return { success: false, error: '403 Forbidden: Super-Admin authorization required to approve cafes' };
     }
@@ -4916,24 +4916,6 @@ class ReactiveStore {
       cafe.approved_at = approvedAt;
     }
 
-    // Direct real update to Supabase Cloud
-    if (supabase && typeof supabase.from === 'function') {
-      try {
-        const { error: cafeErr } = await supabase
-          .from('cafes')
-          .update({ status: 'active' })
-          .or(`id.eq.${entityId},slug.eq.${entityId}`);
-        if (cafeErr) {
-          console.error('Error updating cafe approval in Supabase:', cafeErr);
-        }
-        try {
-          await supabase.from('venues').update({ status: 'active', approval_status: 'approved' }).eq('id', entityId);
-        } catch {}
-      } catch (err) {
-        console.warn('Supabase approve catch:', err);
-      }
-    }
-
     if (isTestEnv) {
       if (tenant) this.save('ays_platform_tenants', this.tenants);
       if (cafe) this.save('ays_cafes', this.cafes);
@@ -4954,16 +4936,41 @@ class ReactiveStore {
 
     this.playSound('bell');
     this.notify();
-    return { success: true, tenant, cafe };
+
+    // Async direct update to Supabase Cloud
+    const asyncPromise = (async () => {
+      if (supabase && typeof supabase.from === 'function') {
+        try {
+          const { error: cafeErr } = await supabase
+            .from('cafes')
+            .update({ status: 'active' })
+            .or(`id.eq.${entityId},slug.eq.${entityId}`);
+          if (cafeErr) {
+            console.error('Error updating cafe approval in Supabase:', cafeErr);
+          }
+          try {
+            await supabase.from('venues').update({ status: 'active', approval_status: 'approved' }).eq('id', entityId);
+          } catch {}
+        } catch (err) {
+          console.warn('Supabase approve catch:', err);
+        }
+      }
+      return { success: true, tenant, cafe };
+    })();
+
+    const result = { success: true, tenant, cafe };
+    result.then = (onResolve, onReject) => asyncPromise.then(onResolve, onReject);
+    result.catch = (onReject) => asyncPromise.catch(onReject);
+    return result;
   }
 
   /**
    * Sovereign Master Admin Rejection / Decline of self-registered café
    * @param {string} tenantIdOrCafeId
    * @param {string} [reason]
-   * @returns {Promise<{ success: boolean, tenant?: object, error?: string }>}
+   * @returns {{ success: boolean, tenant?: object, error?: string }}
    */
-  async rejectTenantCafe(tenantIdOrCafeId, reason = 'Application declined by Platform Admin') {
+  rejectTenantCafe(tenantIdOrCafeId, reason = 'Application declined by Platform Admin') {
     if (!this.isSuperAdmin()) {
       return { success: false, error: '403 Forbidden: Super-Admin authorization required' };
     }
@@ -4995,13 +5002,6 @@ class ReactiveStore {
       cafe.rejection_reason = reason;
     }
 
-    if (supabase && typeof supabase.from === 'function') {
-      try {
-        await supabase.from('cafes').update({ status: 'rejected' }).or(`id.eq.${entityId},slug.eq.${entityId}`);
-        await supabase.from('venues').update({ status: 'rejected', approval_status: 'rejected', rejection_reason: reason }).eq('id', entityId);
-      } catch {}
-    }
-
     if (isTestEnv) {
       if (tenant) this.save('ays_platform_tenants', this.tenants);
       if (cafe) this.save('ays_cafes', this.cafes);
@@ -5022,7 +5022,21 @@ class ReactiveStore {
 
     this.playSound('bump');
     this.notify();
-    return { success: true, tenant };
+
+    const asyncPromise = (async () => {
+      if (supabase && typeof supabase.from === 'function') {
+        try {
+          await supabase.from('cafes').update({ status: 'rejected' }).or(`id.eq.${entityId},slug.eq.${entityId}`);
+          await supabase.from('venues').update({ status: 'rejected', approval_status: 'rejected', rejection_reason: reason }).eq('id', entityId);
+        } catch {}
+      }
+      return { success: true, tenant };
+    })();
+
+    const result = { success: true, tenant };
+    result.then = (onResolve, onReject) => asyncPromise.then(onResolve, onReject);
+    result.catch = (onReject) => asyncPromise.catch(onReject);
+    return result;
   }
 
   /**

@@ -3,6 +3,11 @@
  * Executes Tiers 1–4, aggregates statistics, outputs structured results, and ensures clean process termination.
  */
 
+globalThis.IS_TEST_ENV = true;
+if (typeof process !== 'undefined' && process.env) {
+  process.env.NODE_ENV = 'test';
+}
+
 import { suite as tier1 } from './tier1_features.test.mjs';
 import { suite as tier2 } from './tier2_boundaries.test.mjs';
 import { suite as tier3 } from './tier3_cross_feature.test.mjs';

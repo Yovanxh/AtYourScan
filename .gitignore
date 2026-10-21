@@ -32,3 +32,6 @@ lerna-debug.log*
 .idea/
 .DS_Store
 Thumbs.db
+
+push.bat
+push.ps1
