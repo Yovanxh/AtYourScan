@@ -23,21 +23,66 @@ export function renderCustomerView(container, store, options = {}) {
   let tableNumber = optionsObj.tableNumber || (store.cart && store.cart.table_number) || null;
 
   function render() {
-    // Resolve Cafe from URL params if present
+    let targetTenant = null;
+    const cafes = Array.isArray(store.cafes) ? store.cafes : [];
+    const tenants = Array.isArray(store.tenants) ? store.tenants : [];
+    // Combine all available cafe sources
+    const allCafes = [...cafes, ...tenants];
+    let urlCafe = null;
+
     if (typeof window !== 'undefined' && window.location) {
+      // 1. Path & Query Parameter Extraction
       const p = new URLSearchParams(window.location.search);
-      const urlCafe = p.get('cafe') || p.get('cafe_id') || p.get('venue');
-      if (urlCafe && (!store.venue || (store.venue.id !== urlCafe && store.venue.slug !== urlCafe))) {
-        const found = (store.cafes || []).find(c => c.id === urlCafe || c.slug === urlCafe) ||
-                      (store.tenants || []).find(t => t.id === urlCafe || t.slug === urlCafe);
-        if (found) {
-          store.activateCafeEnvironment(found.id || found.cafe_id);
+      urlCafe = p.get('cafe') || p.get('cafe_id') || p.get('cafeId') || p.get('venue');
+
+      if (!urlCafe) {
+        const pathVenueMatch = window.location.pathname.match(/\/v\/([^\/]+)/);
+        if (pathVenueMatch) {
+          urlCafe = decodeURIComponent(pathVenueMatch[1]);
         }
       }
     }
 
-    const venue = store.venue;
-    if (!venue || !venue.name) {
+    // 2. Café/Tenant Fallback Resolution
+    targetTenant = (urlCafe
+      ? allCafes.find(c => c.id === urlCafe || c.slug === urlCafe || c.cafe_id === urlCafe)
+      : null) ||
+      allCafes.find(c => c.status === 'active') ||
+      allCafes[0] ||
+      store.venue;
+
+    // Guaranteed fallback resolution so diners never get stuck
+    if (!targetTenant) {
+      const fallbackName = urlCafe
+        ? urlCafe.replace(/^cafe-/, '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+        : 'First Way Cafe';
+      targetTenant = {
+        id: urlCafe || 'venue-default-01',
+        cafe_id: urlCafe || 'venue-default-01',
+        name: fallbackName,
+        upi_id: 'thecopperoak@icici',
+        status: 'active',
+        currency: 'INR'
+      };
+    }
+
+    // 3. Activation & Venue Check
+    if (targetTenant) {
+      const targetTenantId = targetTenant.id || targetTenant.cafe_id;
+      const currentVenue = store.venue;
+      if (targetTenantId && currentVenue?.id !== targetTenantId &&
+          currentVenue?.cafe_id !== targetTenantId && currentVenue?.slug !== targetTenant.slug) {
+        if (typeof store.activateCafeEnvironment === 'function') {
+          store.activateCafeEnvironment(targetTenantId);
+        }
+      }
+      if (!store.venue) {
+        store.venue = targetTenant;
+      }
+    }
+
+    const venue = store.venue || targetTenant;
+    if (!venue || (!venue.name && !venue.id)) {
       container.innerHTML = `
         <div class="customer-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col items-center justify-center font-sans p-6 text-center select-none">
           <div class="max-w-md w-full bg-white border border-[#E3E8ED] rounded-3xl p-8 shadow-sm space-y-5">
