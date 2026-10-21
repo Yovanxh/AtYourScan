@@ -1,0 +1,22 @@
+{
+  "name": "atyourscan",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "supabase:setup": "node scripts/setup_supabase.mjs"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.49.1",
+    "pg": "^8.23.1",
+    "qrcode": "^1.5.4",
+    "tesseract.js": "^7.0.0"
+  },
+  "devDependencies": {
+    "vercel": "^65.0.0",
+    "vite": "^5.4.14"
+  }
+}

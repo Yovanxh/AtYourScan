@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>AtYourScan • Smart QR Hospitality Ecosystem</title>
+  <meta name="description" content="Next-generation contactless QR dining, live Kitchen Display System (KDS), Table Floorplan POS, and Instant UPI billing." />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+  <meta http-equiv="Pragma" content="no-cache" />
+  <meta http-equiv="Expires" content="0" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🍽️</text></svg>" />
+  
+  <!-- Tailwind CSS Engine with Dual CDN Resilience -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    if (!window.tailwind) {
+      document.write('<script src="https://www.gstatic.com/antigravity/web/dev/tailwindcss.min.js"><\/script>');
+    }
+  </script>
+  <script>
+    if (window.tailwind) {
+      window.tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+              foodie: {
+                primary: '#FF7622',
+                'primary-hover': '#F15B00',
+                'primary-light': '#FFF1E8',
+                'primary-peach': '#FFEBE4',
+                dark: '#181C2E',
+                midnight: '#121223',
+                slate: '#646982',
+                'light-slate': '#A0A5BA',
+                bg: '#F7F8F9',
+                card: '#FFFFFF',
+                'input-bg': '#F0F5FA',
+                'circle-btn': '#ECF0F4',
+                success: '#059C6A',
+                danger: '#FF334B',
+                star: '#FF9F1C'
+              },
+              brand: {
+                obsidian: '#08080a',
+                surface: '#111115',
+                card: '#16161d',
+                lime: '#10b981',
+                lime_glow: '#22c55e',
+                amber: '#f59e0b',
+                amber_glow: '#f97316',
+                border: 'rgba(255, 255, 255, 0.08)',
+                border_subtle: 'rgba(255, 255, 255, 0.04)',
+                muted: '#71717a',
+                dark: '#0c0c10'
+              }
+            },
+            backgroundColor: {
+              'foodie-bg': '#F7F8F9',
+              'foodie-card': '#FFFFFF',
+              'foodie-dark': '#181C2E',
+              'foodie-midnight': '#121223',
+              'foodie-input': '#F0F5FA',
+              'brand-obsidian': '#08080a',
+              'brand-surface': '#111115',
+              'brand-card': '#16161d',
+              'brand-panel': '#0c0c10'
+            },
+            textColor: {
+              'foodie-dark': '#181C2E',
+              'foodie-slate': '#646982',
+              'foodie-primary': '#FF7622',
+              'brand-primary': '#f4f4f5',
+              'brand-secondary': '#a1a1aa',
+              'brand-muted': '#71717a',
+              'brand-lime': '#10b981',
+              'brand-amber': '#f59e0b'
+            },
+            boxShadow: {
+              'foodie-sm': '0 4px 14px 0 rgba(0, 0, 0, 0.05)',
+              'foodie-card': '0 10px 30px 0 rgba(0, 0, 0, 0.05)',
+              'foodie-floating': '0 20px 40px -15px rgba(24, 28, 46, 0.12)',
+              'foodie-primary': '0 8px 24px -4px rgba(255, 118, 34, 0.35)',
+              'glow-lime': '0 0 20px -3px rgba(16, 185, 129, 0.35)',
+              'glow-lime-lg': '0 0 30px -4px rgba(16, 185, 129, 0.55)',
+              'glow-amber': '0 0 20px -3px rgba(245, 158, 11, 0.35)',
+              'glow-amber-lg': '0 0 30px -4px rgba(245, 158, 11, 0.55)',
+              'obsidian-card': '0 20px 40px -15px rgba(0, 0, 0, 0.8), 0 0 0 1px rgba(255, 255, 255, 0.06)'
+            },
+            fontFamily: {
+              sans: ['"Plus Jakarta Sans"', '-apple-system', 'BlinkMacSystemFont', 'Segoe UI', 'Roboto', 'sans-serif'],
+              mono: ['"JetBrains Mono"', 'monospace'],
+              serif: ['"Playfair Display"', 'Georgia', 'serif']
+            }
+          }
+        }
+      };
+    }
+  </script>
+  
+  <!-- Bespoke Typography & Print Styles -->
+  <link rel="stylesheet" href="./src/styles.css" />
+</head>
+<body class="bg-[#08080a] bg-brand-obsidian text-brand-primary min-h-screen flex flex-col selection:bg-brand-lime/30 selection:text-brand-lime font-sans antialiased">
+  
+  <!-- Global SVG Definitions for Dribbble Striped Pill Charts & Glows -->
+  <svg class="sr-only" aria-hidden="true" width="0" height="0" style="position: absolute; width: 0; height: 0; pointer-events: none;">
+    <defs>
+      <!-- Diagonal Stripe Lime Pattern -->
+      <pattern id="pattern-pill-lime" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="10" stroke="#10b981" stroke-width="4" stroke-opacity="0.9" />
+        <line x1="5" y1="0" x2="5" y2="10" stroke="#08080a" stroke-width="6" stroke-opacity="0.6" />
+      </pattern>
+      <!-- Diagonal Stripe Amber Pattern -->
+      <pattern id="pattern-pill-amber" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="10" stroke="#f59e0b" stroke-width="4" stroke-opacity="0.9" />
+        <line x1="5" y1="0" x2="5" y2="10" stroke="#08080a" stroke-width="6" stroke-opacity="0.6" />
+      </pattern>
+      <!-- Diagonal Stripe Muted Pattern -->
+      <pattern id="pattern-pill-muted" width="10" height="10" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">
+        <line x1="0" y1="0" x2="0" y2="10" stroke="#71717a" stroke-width="3" stroke-opacity="0.35" />
+        <line x1="5" y1="0" x2="5" y2="10" stroke="#111115" stroke-width="7" stroke-opacity="0.5" />
+      </pattern>
+      <!-- Linear Gradients for Pill Bar Endcaps -->
+      <linearGradient id="grad-pill-lime" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#22c55e" stop-opacity="1" />
+        <stop offset="100%" stop-color="#10b981" stop-opacity="0.85" />
+      </linearGradient>
+      <linearGradient id="grad-pill-amber" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#f97316" stop-opacity="1" />
+        <stop offset="100%" stop-color="#f59e0b" stop-opacity="0.85" />
+      </linearGradient>
+      <linearGradient id="grad-pill-glow" x1="0" y1="0" x2="0" y2="1">
+        <stop offset="0%" stop-color="#ffffff" stop-opacity="0.25" />
+        <stop offset="100%" stop-color="#ffffff" stop-opacity="0" />
+      </linearGradient>
+    </defs>
+  </svg>
+
+  <!-- Global Error Handler / Blank Screen Safeguard -->
+  <div id="app-error-fallback" class="hidden max-w-md mx-auto my-12 p-6 rounded-2xl bg-brand-surface border border-brand-amber/40 text-center space-y-3">
+    <div class="text-2xl">⚠️</div>
+    <h3 class="text-sm font-semibold text-brand-primary">Application Initialization Notice</h3>
+    <p id="app-error-message" class="text-xs text-brand-muted font-mono"></p>
+    <button onclick="window.location.reload()" class="px-4 py-2 bg-brand-amber text-zinc-950 font-bold text-xs rounded-xl hover:bg-amber-400 transition-all">Reload Page</button>
+  </div>
+
+  <script>
+    window.addEventListener('error', function(e) {
+      console.error('App Runtime Catch:', e);
+      const fb = document.getElementById('app-error-fallback');
+      const msg = document.getElementById('app-error-message');
+      const mainApp = document.getElementById('app-view-container');
+      if (fb && msg && (!mainApp || !mainApp.children.length)) {
+        fb.classList.remove('hidden');
+        msg.textContent = (e.message || 'Script error') + (e.filename ? ' at ' + e.filename.split('/').pop() + ':' + e.lineno : '');
+      }
+    });
+  </script>
+
+  <!-- Persistent Top Navigation Bar (Hidden during Print) -->
+  <header id="top-navigation-rail" class="sticky top-0 z-50 bg-brand-obsidian/90 backdrop-blur-md border-b border-white/[0.08] no-print"></header>
+
+  <!-- Dynamic Application Views Mount (Customer, Analytics, Floorplan, Stock, KDS, QR) -->
+  <main id="app-view-container" class="flex-1 flex flex-col"></main>
+
+  <!-- Global Application Modal Layer (Onboarding Wizard, Terminal Pairing, PIN Keypad, Manager Override) -->
+  <div id="app-modal-layer" class="relative z-50"></div>
+
+  <!-- Application Bootstrap -->
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
