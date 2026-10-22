@@ -655,18 +655,31 @@ export function renderStockIngestionView(container, reactiveStore) {
     }
     const tabMasterAi = container.querySelector('#tab-btn-master-ai');
     if (tabMasterAi) {
-      tabMasterAi.addEventListener('click', () => {
-        let layer = document.getElementById('app-modal-layer');
-        if (!layer) {
-          layer = document.createElement('div');
-          layer.id = 'app-modal-layer';
-          document.body?.appendChild(layer);
-        }
-        renderMasterMenuIngestionModal(layer, reactiveStore, {
-          onComplete: () => {
-            render();
-          }
+      tabMasterAi.addEventListener('click', (e) => {
+        e?.preventDefault?.();
+        activeTab = 'master-ai';
+        // Update active tab styles immediately across all mode buttons
+        container.querySelectorAll('#tab-btn-catalog, #tab-btn-text, #tab-btn-image').forEach(b => {
+          b.className = 'px-4 py-2 rounded-xl text-xs font-bold transition-all text-[#646982] hover:text-[#181C2E]';
         });
+        tabMasterAi.className = 'px-3.5 py-2 rounded-xl text-xs font-black transition-all bg-gradient-to-r from-emerald-600 to-teal-600 text-white shadow-md shadow-emerald-600/30 flex items-center gap-1.5 cursor-pointer';
+
+        try {
+          let layer = document.getElementById('app-modal-layer');
+          if (!layer) {
+            layer = document.createElement('div');
+            layer.id = 'app-modal-layer';
+            layer.className = 'relative z-50';
+            document.body?.appendChild(layer);
+          }
+          renderMasterMenuIngestionModal(layer, reactiveStore, {
+            onComplete: () => {
+              render();
+            }
+          });
+        } catch (err) {
+          console.error('[StockIngestionView] Failed to open MasterMenuIngestionModal:', err);
+        }
       });
     }
 

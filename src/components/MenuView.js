@@ -109,6 +109,19 @@ export function renderMenuView(container, store, options = {}) {
                 >
                   📷 Invoice Image OCR
                 </button>
+                ${isAdmin ? `
+                  <button 
+                    id="tab-btn-master-ai" 
+                    type="button"
+                    class="px-3.5 py-2 rounded-xl text-xs font-bold transition-all text-emerald-800 bg-emerald-500/10 hover:bg-emerald-500/20 active:scale-95 cursor-pointer flex items-center gap-1.5"
+                    title="AI Menu Auto-Import (OCR & Instant Extraction)"
+                  >
+                    <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/>
+                    </svg>
+                    <span>AI Menu Auto-Import</span>
+                  </button>
+                ` : ''}
               </div>
 
               <div class="hidden xl:block w-px h-8 bg-slate-200"></div>
@@ -670,6 +683,7 @@ export function renderMenuView(container, store, options = {}) {
     const tabCatalog = container.querySelector('#tab-btn-catalog');
     const tabText = container.querySelector('#tab-btn-text');
     const tabImage = container.querySelector('#tab-btn-image');
+    const tabMasterAi = container.querySelector('#tab-btn-master-ai');
 
     if (tabCatalog && onSwitchMode) {
       tabCatalog.onclick = () => onSwitchMode('catalog');
@@ -679,6 +693,33 @@ export function renderMenuView(container, store, options = {}) {
     }
     if (tabImage && onSwitchMode) {
       tabImage.onclick = () => onSwitchMode('image');
+    }
+
+    if (tabMasterAi) {
+      tabMasterAi.onclick = (e) => {
+        e?.preventDefault?.();
+        // Update active tab styling
+        container.querySelectorAll('#tab-btn-catalog, #tab-btn-text, #tab-btn-image, #tab-btn-master-ai').forEach(btn => {
+          btn.classList.remove('bg-[#FF7622]', 'text-white', 'shadow-md', 'shadow-[#FF7622]/30', 'bg-emerald-600', 'shadow-emerald-600/30');
+          btn.classList.add('text-[#646982]');
+        });
+        tabMasterAi.classList.remove('text-[#646982]', 'text-emerald-800', 'bg-emerald-500/10');
+        tabMasterAi.classList.add('bg-emerald-600', 'text-white', 'shadow-md', 'shadow-emerald-600/30');
+
+        try {
+          renderMasterMenuIngestionModal(getModalLayer(), store, {
+            onComplete: (summary) => {
+              statusBanner = { 
+                type: 'success', 
+                text: `Ingested ${summary?.categoriesCreated || 0} categories and ${summary?.dishesCreated || 0} dishes successfully!` 
+              };
+              render();
+            }
+          });
+        } catch (err) {
+          console.error('[MenuView] Error opening MasterMenuIngestionModal:', err);
+        }
+      };
     }
 
     // Tab switching
