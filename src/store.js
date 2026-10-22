@@ -664,7 +664,7 @@ class ReactiveStore {
     this.listeners = new Set();
 
     // One-time migration: purge legacy mock / demo keys from browser localStorage in production
-    const mockPurgedKey = 'ays_prod_clean_purge_v4';
+    const mockPurgedKey = 'ays_prod_clean_purge_v5';
     if (!isTestEnv) {
       try {
         if (typeof localStorage !== 'undefined' && !localStorage.getItem(mockPurgedKey)) {
@@ -674,6 +674,7 @@ class ReactiveStore {
           localStorage.removeItem('ays_categories');
           localStorage.removeItem('ays_dishes');
           localStorage.removeItem('ays_orders');
+          localStorage.removeItem('ays_orders_demo');
           localStorage.removeItem('ays_cafes');
           localStorage.removeItem('ays_users');
           localStorage.removeItem('ays_current_user');
@@ -780,11 +781,17 @@ class ReactiveStore {
       this.menuItems = [];
     }
 
-    this.orders = isTestEnv ? this.load('ays_orders', INITIAL_ORDERS) : this.load('ays_orders', []);
     if (!isTestEnv) {
-      this.orders = (this.orders || []).filter(o => !/^AYS-[678]\d{2}/.test(o.id));
+      // In production, strictly initialize orders as empty array [] if no remote orders exist
+      const loaded = this.load('ays_orders', []);
+      this.orders = (loaded || []).filter(o => 
+        Array.isArray(o.items) && o.items.length > 0 && 
+        !/^AYS-[678]\d{2}/.test(o.id) &&
+        (!this.venue?.id || o.venue_id === this.venue.id || o.cafe_id === this.venue.id)
+      );
       this.save('ays_orders', this.orders);
     } else {
+      this.orders = this.load('ays_orders', INITIAL_ORDERS);
       this.orders = (this.orders || []).filter(o => !/^AYS-[67]\d{2}/.test(o.id));
       this.save('ays_orders', this.orders);
     }
@@ -1264,30 +1271,60 @@ class ReactiveStore {
         this.tables = [];
       }
 
-      // 4. Sync live orders from Supabase Cloud
-      const { data: ordersData } = await supabase.from('orders')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(50);
-      if (Array.isArray(ordersData) && ordersData.length > 0) {
-        ordersData.forEach(remoteOrder => {
-          const exists = this.orders.some(o => o.id === remoteOrder.id);
-          if (!exists) {
-            this.orders.unshift({
-              id: remoteOrder.id,
-              venue_id: remoteOrder.venue_id,
-              cafe_id: remoteOrder.cafe_id || remoteOrder.venue_id,
-              table_number: remoteOrder.table_number,
-              source: remoteOrder.source || 'QR_DINE_IN',
-              status: remoteOrder.status || 'New',
-              total_amount: parseFloat(remoteOrder.total_amount) || 0,
-              items: remoteOrder.items || [],
-              created_at: remoteOrder.created_at
-            });
+      // 4. Sync live orders from Supabase Cloud strictly scoped to the active venue
+      if (currentVenueId) {
+        try {
+          const { data: ordersData, error: ordersErr } = await supabase.from('orders')
+            .select('*')
+            .or(`venue_id.eq.${currentVenueId},cafe_id.eq.${currentVenueId}`)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+          if (!ordersErr && Array.isArray(ordersData)) {
+            if (ordersData.length > 0) {
+              const orderIds = ordersData.map(o => o.id);
+              const { data: itemsData } = await supabase
+                .from('order_items')
+                .select('*, menu_items(name, price)')
+                .in('order_id', orderIds);
+
+              const itemsByOrder = {};
+              (itemsData || []).forEach(it => {
+                if (!itemsByOrder[it.order_id]) itemsByOrder[it.order_id] = [];
+                itemsByOrder[it.order_id].push({
+                  id: it.id || it.menu_item_id,
+                  name: it.menu_items?.name || it.name || 'Menu Item',
+                  dish_name: it.menu_items?.name || it.name || 'Menu Item',
+                  quantity: it.quantity || 1,
+                  price: parseFloat(it.menu_items?.price || it.price || 0)
+                });
+              });
+
+              this.orders = ordersData.map(remoteOrder => ({
+                id: remoteOrder.id,
+                venue_id: remoteOrder.venue_id,
+                cafe_id: remoteOrder.cafe_id || remoteOrder.venue_id,
+                table_number: remoteOrder.table_number,
+                source: remoteOrder.source || 'QR_DINE_IN',
+                status: remoteOrder.status || 'New',
+                total_amount: parseFloat(remoteOrder.total_amount) || 0,
+                items: Array.isArray(remoteOrder.items) && remoteOrder.items.length > 0 
+                  ? remoteOrder.items 
+                  : (itemsByOrder[remoteOrder.id] || []),
+                created_at: remoteOrder.created_at
+              })).filter(o => Array.isArray(o.items) && o.items.length > 0);
+            } else {
+              // 0 rows in Supabase: strictly empty array (never fall back to mock tickets)
+              this.orders = [];
+            }
+            this.save('ays_orders', this.orders);
+            this.notify({ type: 'ORDERS_SYNCED' });
           }
-        });
-        this.save('ays_orders', this.orders);
-        this.notify({ type: 'ORDERS_SYNCED' });
+        } catch (syncErr) {
+          console.warn('[Sync] Failed to sync orders from Supabase:', syncErr);
+        }
+      } else if (!isTestEnv) {
+        this.orders = [];
       }
 
       // 5. Sync dishes from Supabase Cloud
@@ -5486,8 +5523,9 @@ class ReactiveStore {
       this.tables = this.load('ays_tables_demo', this.load('ays_tables', INITIAL_TABLES));
       this.save('ays_tables', this.tables);
 
-      this.orders = this.load('ays_orders_demo', this.load('ays_orders', INITIAL_ORDERS));
-      this.orders = (this.orders || []).filter(o => !/^AYS-[67]\d{2}/.test(o.id));
+      this.orders = isTestEnv 
+        ? (this.load('ays_orders_demo', this.load('ays_orders', INITIAL_ORDERS)) || []).filter(o => !/^AYS-[67]\d{2}/.test(o.id))
+        : [];
       this.save('ays_orders', this.orders);
 
       this.menuItems = this.load('ays_menu_demo', this.load('ays_menu', DEFAULT_CATALOG_DISHES || INITIAL_MENU_ITEMS));

@@ -9,7 +9,17 @@ export function renderKDSView(container, store) {
   let timerInterval = null;
 
   function render() {
-    const activeOrders = store.orders.filter(o => o.status !== 'Completed' && o.status !== 'Cancelled');
+    const currentVenueId = store.venue?.id || store.venue?.cafe_id;
+    const activeOrders = (store.orders || []).filter(o => {
+      if (o.status === 'Completed' || o.status === 'Cancelled') return false;
+      // Filter out phantom/dummy tickets with empty items
+      if (!Array.isArray(o.items) || o.items.length === 0) return false;
+      // Scope strictly to active venue
+      if (currentVenueId && o.venue_id && o.venue_id !== currentVenueId && o.cafe_id !== currentVenueId) {
+        return false;
+      }
+      return true;
+    });
     
     // Filter by channel
     const filteredOrders = activeOrders.filter(o => {
@@ -107,7 +117,7 @@ export function renderKDSView(container, store) {
               <div class="w-16 h-16 rounded-full bg-[#EBF7F2] text-[#059C6A] flex items-center justify-center text-3xl font-black mb-3">
                 ✓
               </div>
-              <h3 class="text-lg font-black text-[#181C2E]">All Kitchen Orders Cleared</h3>
+              <h3 class="text-lg font-black text-[#181C2E]">No active tickets in kitchen</h3>
               <p class="text-xs text-[#646982] mt-1 max-w-sm">No active preparation tickets in the queue. New QR scans will appear here instantly with an audible chime.</p>
             </div>
           ` : `
