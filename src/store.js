@@ -3650,13 +3650,18 @@ class ReactiveStore {
 
   /**
    * Check if user session has Admin role
-   * Strictly validates role === 'admin'
+   * Supports 'admin', 'cafe_admin', 'master_admin', 'owner', 'manager'
    * @param {object} [staff=this.currentStaff]
    * @returns {boolean}
    */
   isAdmin(staff = this.currentStaff) {
+    const role = (this.currentUser?.role || this.currentUser?.system_role || this.userRole || '').toLowerCase();
+    if (role && ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role)) {
+      return true;
+    }
     if (!staff || !staff.role) return false;
-    return (staff.role || '').toLowerCase() === 'admin';
+    const staffRole = (staff.role || '').toLowerCase();
+    return ['admin', 'cafe_admin', 'master_admin', 'owner'].includes(staffRole);
   }
 
   /**

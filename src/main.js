@@ -1857,8 +1857,8 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   initializeGatewayRouting();
 
   // Persistent Delegated Event Listener for AI Menu Auto-Import
-  // Prevents button decoupling when views re-render
-  if (typeof document.addEventListener === 'function') {
+  // Uses capture phase (true) to prevent parent event cancellation
+  if (typeof document !== 'undefined' && typeof document.addEventListener === 'function') {
     document.addEventListener('click', (e) => {
       const aiBtn = e.target.closest('#nav-master-ai-menu-btn, #tab-btn-master-ai, #btn-ai-menu-import');
       if (!aiBtn) return;
@@ -1882,39 +1882,42 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (!layer) {
         layer = document.createElement('div');
         layer.id = 'app-modal-layer';
-        layer.className = 'fixed inset-0 z-50 flex items-center justify-center';
-        document.body?.appendChild(layer);
+        document.body.appendChild(layer);
       }
+      layer.className = 'fixed inset-0 z-[99999] flex items-center justify-center bg-black/60 p-4';
+      layer.innerHTML = '';
 
       const modalFn = typeof renderMasterMenuIngestionModal === 'function'
         ? renderMasterMenuIngestionModal
         : (typeof window !== 'undefined' ? window.renderMasterMenuIngestionModal : null);
 
-      if (typeof modalFn === 'function') {
-        const activeStore = (typeof store !== 'undefined' && store) || (typeof window !== 'undefined' ? window.store : null) || {
-          isAdmin: () => true,
-          venue: { id: 'cafe-first-way-cafe-hotc', name: 'First Way Cafe' },
-          dishes: [],
-          categories: [],
-          save: () => {},
-          load: () => null
-        };
+      const activeStore = (typeof store !== 'undefined' && store) || (typeof window !== 'undefined' ? window.store : null) || {
+        isAdmin: () => true,
+        venue: { id: 'cafe-first-way-cafe-hotc', name: 'First Way Cafe' },
+        dishes: [],
+        categories: [],
+        save: () => {},
+        load: () => null
+      };
 
+      if (typeof modalFn === 'function') {
         modalFn(layer, activeStore, {
-          onComplete: () => {
+          onComplete: (summary) => {
+            if (layer) layer.remove();
             if (typeof renderNavRail === 'function') renderNavRail();
-            if (typeof switchView === 'function' && typeof currentView !== 'undefined' && currentView) switchView(currentView, false);
+            if (typeof switchView === 'function' && typeof currentView !== 'undefined' && currentView) {
+              switchView(currentView, false);
+            }
             if (typeof render === 'function') render();
-            if (layer && typeof layer.remove === 'function') layer.remove();
           },
           onClose: () => {
-            if (layer && typeof layer.remove === 'function') layer.remove();
+            if (layer) layer.remove();
           }
         });
       } else {
         console.error('[AI Menu Import] renderMasterMenuIngestionModal could not be found.');
       }
-    });
+    }, true);
   }
 }
 

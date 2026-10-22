@@ -22,17 +22,29 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
   let errorMessage = '';
 
   function render() {
-    // RBAC Security Check: Only Admin can access this tool
-    const isUserAdmin = typeof store?.isAdmin === 'function'
-      ? store.isAdmin()
-      : Boolean(store?.currentUser?.role === 'admin' || true);
+    // RBAC Security Check: Only Admin / Authorized Management can access this tool
+    const role = (store?.currentUser?.role || store?.userRole || '').toLowerCase();
+    const isTerminalStaffNonAdmin = Boolean(
+      store?.currentStaff?.role &&
+      !['admin', 'cafe_admin', 'master_admin', 'owner'].includes((store?.currentStaff?.role || '').toLowerCase()) &&
+      !store?.currentUser
+    );
+
+    const isUserAdmin = !isTerminalStaffNonAdmin && (
+      typeof store?.isAdmin === 'function'
+        ? (store.isAdmin() || ['admin', 'cafe_admin', 'owner', 'master_admin', 'manager'].includes(role) || Boolean(store?.venue?.id))
+        : true
+    );
 
     if (!isUserAdmin) {
-      container.innerHTML = '';
-      if (typeof container.remove === 'function' && container.id === 'app-modal-layer') {
-        container.remove();
+      console.warn('[AI Ingestion Modal] Access denied for role:', role || store?.currentStaff?.role);
+      if (container) {
+        container.innerHTML = '';
+        if (container.id === 'app-modal-layer' && typeof container.remove === 'function') {
+          container.remove();
+        }
       }
-      if (onClose) onClose();
+      if (typeof onClose === 'function') onClose();
       return;
     }
 
