@@ -378,6 +378,17 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
 
     if (btnAnalyze) {
       btnAnalyze.addEventListener('click', () => {
+        const role = store?.currentUser?.role || store?.userRole || '';
+        const canImport = typeof store?.isAdmin === 'function'
+          ? (store.isAdmin() || ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id))
+          : (['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id));
+
+        if (!canImport) {
+          errorMessage = '403 Forbidden: Only Admin accounts are authorized to import menus';
+          render();
+          return;
+        }
+
         const textToAnalyze = (textarea ? textarea.value : inputText) || inputText;
         inputText = textToAnalyze;
 
@@ -410,6 +421,17 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
     const btnConfirmImport = container.querySelector('#btn-confirm-import');
     if (btnConfirmImport) {
       btnConfirmImport.addEventListener('click', async () => {
+        const role = store?.currentUser?.role || store?.userRole || '';
+        const canImport = typeof store?.isAdmin === 'function'
+          ? (store.isAdmin() || ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id))
+          : (['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id));
+
+        if (!canImport) {
+          errorMessage = '403 Forbidden: Only Admin accounts are authorized to import menus';
+          render();
+          return;
+        }
+
         if (!parsedResult || !parsedResult.dishes.length) return;
         isImporting = true;
         errorMessage = '';
