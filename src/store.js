@@ -3363,6 +3363,7 @@ class ReactiveStore {
     // 5. Finalize Onboarded State
     this.onboarded = true;
     this.save('ays_onboarded', 'true');
+    this.save('ays_setup_completed', 'true');
     this.isLocked = false;
     this.save('ays_is_locked', false);
 

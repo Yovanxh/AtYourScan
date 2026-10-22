@@ -281,6 +281,11 @@ export function renderOnboardingModal(container, store, options = {}) {
 
       successState = true;
       isSubmitting = false;
+      try {
+        localStorage.setItem('ays_setup_completed', 'true');
+        localStorage.setItem('ays_onboarded', 'true');
+      } catch {}
+      if (store) store.onboarded = true;
       render();
 
       if (typeof onComplete === 'function') {
@@ -1012,6 +1017,11 @@ export function renderOnboardingModal(container, store, options = {}) {
 
     // Close button
     container.querySelector('#btn-close-onboarding')?.addEventListener('click', () => {
+      try {
+        localStorage.setItem('ays_setup_completed', 'true');
+        localStorage.setItem('ays_onboarded', 'true');
+      } catch {}
+      if (store) store.onboarded = true;
       closeModal();
       if (typeof onCancel === 'function') onCancel();
     });
@@ -1191,6 +1201,17 @@ export function renderOnboardingModal(container, store, options = {}) {
  */
 export function openOnboardingModal(store, options = {}) {
   if (typeof document === 'undefined') return { close: () => {} };
+
+  const hasActiveVenue = Boolean(store?.venue?.id || store?.venue?.name || (store?.cafes && store.cafes.length > 0));
+  let isExplicitlyCompleted = false;
+  try {
+    isExplicitlyCompleted = localStorage.getItem('ays_setup_completed') === 'true';
+  } catch {}
+
+  if (!options?.force && (hasActiveVenue || isExplicitlyCompleted)) {
+    // Suppress First-Run Wizard
+    return { close: () => {} };
+  }
 
   let modalMount = document.getElementById('app-modal-layer');
   let createdMount = false;

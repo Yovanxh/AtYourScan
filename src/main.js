@@ -170,9 +170,19 @@ export function evaluateAuthGates(targetView, storeInstance = store) {
     return { allowed: true, gate: null };
   }
 
+  // Guard: Venue Existence & Persisted Completion Flag
+  const hasActiveVenue = Boolean(storeInstance?.venue?.id || storeInstance?.venue?.name || (storeInstance?.cafes && storeInstance.cafes.length > 0));
+  let isExplicitlyCompleted = false;
+  try {
+    isExplicitlyCompleted = localStorage.getItem('ays_setup_completed') === 'true';
+  } catch {}
+
   // Gate 1: First-Run Onboarding Setup
-  if (storeInstance && typeof storeInstance.isUninitialized === 'function' && storeInstance.isUninitialized()) {
-    return { allowed: false, gate: 'ONBOARDING_MODAL' };
+  // If an active venue already exists or setup was explicitly completed, NEVER trigger First-Run Wizard
+  if (!hasActiveVenue && !isExplicitlyCompleted) {
+    if (storeInstance && typeof storeInstance.isUninitialized === 'function' && storeInstance.isUninitialized()) {
+      return { allowed: false, gate: 'ONBOARDING_MODAL' };
+    }
   }
 
   // Gate 2: Hardware Terminal SIN Pairing
@@ -230,12 +240,30 @@ export function openLockScreenGate() {
 }
 
 export function openOnboardingGate() {
+  const hasActiveVenue = Boolean(store?.venue?.id || store?.venue?.name || (store?.cafes && store.cafes.length > 0));
+  let isExplicitlyCompleted = false;
+  try {
+    isExplicitlyCompleted = localStorage.getItem('ays_setup_completed') === 'true';
+  } catch {}
+
+  if (hasActiveVenue || isExplicitlyCompleted) {
+    // Suppress First-Run Wizard
+    closeModals();
+    return;
+  }
+
   const container = getModalContainer();
   if (!container) return;
   container.innerHTML = '';
 
   renderOnboardingModal(container, store, {
     onComplete: (onboardingData) => {
+      try {
+        localStorage.setItem('ays_setup_completed', 'true');
+        localStorage.setItem('ays_onboarded', 'true');
+      } catch {}
+      if (store) store.onboarded = true;
+
       // Re-evaluate pairing state
       if (!store.isTerminalPaired()) {
         openTerminalPairingGate();
@@ -246,12 +274,20 @@ export function openOnboardingGate() {
       }
     },
     onDismiss: () => {
-      // Safe fallback: redirect to guest dining
-      switchView('customer');
+      try {
+        localStorage.setItem('ays_setup_completed', 'true');
+      } catch {}
+      if (store) store.onboarded = true;
+      closeModals();
+      switchView(currentView === 'customer' ? 'customer' : currentView, false);
     },
     onCancel: () => {
-      // Safe fallback: redirect to guest dining
-      switchView('customer');
+      try {
+        localStorage.setItem('ays_setup_completed', 'true');
+      } catch {}
+      if (store) store.onboarded = true;
+      closeModals();
+      switchView(currentView === 'customer' ? 'customer' : currentView, false);
     }
   });
 }
