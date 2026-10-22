@@ -1838,5 +1838,44 @@ export async function initializeGatewayRouting() {
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   renderNavRail();
   initializeGatewayRouting();
+
+  // Persistent Delegated Event Listener for AI Menu Auto-Import
+  // Prevents button decoupling when views re-render
+  if (typeof document.addEventListener === 'function') {
+    document.addEventListener('click', (e) => {
+      const aiBtn = e.target.closest('#tab-btn-master-ai, #btn-ai-menu-import');
+      if (!aiBtn) return;
+      e.preventDefault();
+
+      // 1. Update visual tab state cleanly across all tabs in ribbon if present
+      document.querySelectorAll('#tab-btn-catalog, #tab-btn-text, #tab-btn-image, #tab-btn-master-ai').forEach(btn => {
+        btn.classList.remove('bg-[#FF7622]', 'text-white', 'shadow-md', 'shadow-[#FF7622]/30', 'bg-emerald-600', 'shadow-emerald-600/30');
+        btn.classList.add('text-[#646982]');
+      });
+      const masterAiBtn = document.querySelector('#tab-btn-master-ai');
+      if (masterAiBtn) {
+        masterAiBtn.classList.remove('text-[#646982]', 'text-emerald-800', 'bg-emerald-500/10');
+        masterAiBtn.classList.add('bg-emerald-600', 'text-white', 'shadow-md', 'shadow-emerald-600/30');
+      }
+
+      // 2. Open MasterMenuIngestionModal
+      let layer = document.getElementById('app-modal-layer');
+      if (!layer) {
+        layer = document.createElement('div');
+        layer.id = 'app-modal-layer';
+        layer.className = 'relative z-50';
+        document.body?.appendChild(layer);
+      }
+
+      if (typeof renderMasterMenuIngestionModal === 'function') {
+        renderMasterMenuIngestionModal(layer, store, {
+          onComplete: (summary) => {
+            if (typeof renderNavRail === 'function') renderNavRail();
+            if (typeof switchView === 'function' && currentView) switchView(currentView, false);
+          }
+        });
+      }
+    });
+  }
 }
 

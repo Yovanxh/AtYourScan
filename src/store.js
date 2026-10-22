@@ -783,12 +783,7 @@ class ReactiveStore {
 
     if (!isTestEnv) {
       // In production, strictly initialize orders as empty array [] if no remote orders exist
-      const loaded = this.load('ays_orders', []);
-      this.orders = (loaded || []).filter(o => 
-        Array.isArray(o.items) && o.items.length > 0 && 
-        !/^AYS-[678]\d{2}/.test(o.id) &&
-        (!this.venue?.id || o.venue_id === this.venue.id || o.cafe_id === this.venue.id)
-      );
+      this.orders = [];
       this.save('ays_orders', this.orders);
     } else {
       this.orders = this.load('ays_orders', INITIAL_ORDERS);
@@ -1317,8 +1312,10 @@ class ReactiveStore {
               // 0 rows in Supabase: strictly empty array (never fall back to mock tickets)
               this.orders = [];
             }
-            this.save('ays_orders', this.orders);
-            this.notify({ type: 'ORDERS_SYNCED' });
+            if (this.orders.length > 0) {
+              this.save('ays_orders', this.orders);
+              this.notify({ type: 'ORDERS_SYNCED' });
+            }
           }
         } catch (syncErr) {
           console.warn('[Sync] Failed to sync orders from Supabase:', syncErr);
