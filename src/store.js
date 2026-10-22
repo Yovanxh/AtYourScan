@@ -2072,9 +2072,13 @@ class ReactiveStore {
       return { success: false, error: 'Category name is required' };
     }
 
+    const venueId = categoryData.venue_id || categoryData.outlet_id || this.venue?.id || 'cafe-first-way-cafe-hotc';
+
     const newCategory = {
       id: categoryData.id || `cat-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      outlet_id: categoryData.outlet_id || this.venue.id,
+      outlet_id: venueId,
+      venue_id: venueId,
+      cafe_id: venueId,
       name,
       course_type: categoryData.course_type || 'Main Course',
       dietary_scope: categoryData.dietary_scope || 'All',
@@ -2085,9 +2089,11 @@ class ReactiveStore {
     this.saveCatalog();
 
     try {
-      supabase?.from('categories')?.insert({
+      supabase?.from('categories')?.upsert({
         id: newCategory.id,
-        outlet_id: newCategory.outlet_id,
+        outlet_id: venueId,
+        venue_id: venueId,
+        cafe_id: venueId,
         name: newCategory.name,
         course_type: newCategory.course_type,
         dietary_scope: newCategory.dietary_scope
@@ -2146,9 +2152,13 @@ class ReactiveStore {
     const category = this.categories.find(c => c.id === dishData.category_id);
     const dietaryTag = dishData.dietary_tag || 'Veg';
 
+    const venueId = dishData.venue_id || dishData.outlet_id || this.venue?.id || 'cafe-first-way-cafe-hotc';
+
     const newDish = {
       id: dishData.id || `dish-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      outlet_id: dishData.outlet_id || this.venue.id,
+      outlet_id: venueId,
+      venue_id: venueId,
+      cafe_id: venueId,
       category_id: dishData.category_id || null,
       category: category ? category.name : (dishData.category || 'General'),
       name,
@@ -2160,6 +2170,7 @@ class ReactiveStore {
       unit_cost: dishData.unit_cost !== undefined ? dishData.unit_cost : Math.round(price * 0.36),
       is_available: dishData.is_available !== undefined ? dishData.is_available : true,
       stock_quantity: dishData.stock_quantity !== undefined ? dishData.stock_quantity : 50,
+      variations: dishData.variations || [],
       created_at: new Date().toISOString()
     };
 
@@ -2192,9 +2203,11 @@ class ReactiveStore {
     this.saveCatalog();
 
     try {
-      supabase?.from('dishes')?.insert({
+      supabase?.from('dishes')?.upsert({
         id: newDish.id,
-        outlet_id: newDish.outlet_id,
+        outlet_id: venueId,
+        venue_id: venueId,
+        cafe_id: venueId,
         category_id: newDish.category_id,
         name: newDish.name,
         description: newDish.description,
@@ -3822,6 +3835,8 @@ class ReactiveStore {
       } catch {}
     }
 
+    const allowedRoles = ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'];
+
     const isStaffNonAdmin = Boolean(
       this.currentStaff?.role &&
       ['cashier', 'server', 'bartender'].includes((this.currentStaff.role || '').toLowerCase()) &&
@@ -3830,101 +3845,113 @@ class ReactiveStore {
     );
 
     const isAuthorized = !isStaffNonAdmin && (
-      ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(callerRole) ||
+      allowedRoles.includes(callerRole) ||
       (typeof this.isAdmin === 'function' && this.isAdmin()) ||
-      Boolean(this.venue?.id && (this.currentUser || ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(callerRole)))
+      Boolean(this.venue?.id)
     );
 
     if (!isAuthorized) {
       return { success: false, error: '403 Forbidden: Only Admin accounts are authorized to import menus', status: 403 };
     }
 
-    let categoriesCreated = 0;
-    let dishesCreated = 0;
-    const catNameToId = new Map();
+    const prevElevation = this.elevationExpiry;
+    this.elevationExpiry = Date.now() + 60000; // Temporary elevation for authorized import batch
 
-    // Map existing categories
-    for (const c of this.categories) {
-      catNameToId.set(c.name.toLowerCase().trim(), c.id);
-    }
+    try {
+      let categoriesCreated = 0;
+      let dishesCreated = 0;
+      const catNameToId = new Map();
+      const defaultVenueId = this.venue?.id || 'cafe-first-way-cafe-hotc';
 
-    // 1. Create categories
-    for (const cat of categories) {
-      const norm = (cat.name || '').toLowerCase().trim();
-      if (!norm) continue;
-
-      if (!catNameToId.has(norm)) {
-        const res = this.createCategory({
-          name: cat.name.trim(),
-          course_type: cat.course_type || 'Main Course',
-          dietary_scope: cat.dietary_scope || 'Veg Only'
-        });
-        if (res.success && res.category) {
-          catNameToId.set(norm, res.category.id);
-          categoriesCreated++;
-        }
+      // Map existing categories
+      for (const c of this.categories) {
+        catNameToId.set(c.name.toLowerCase().trim(), c.id);
       }
-    }
 
-    // 2. Create dishes
-    for (const dish of dishes) {
-      const normCat = (dish.category || '').toLowerCase().trim();
-      let catId = catNameToId.get(normCat);
-      if (!catId) {
-        for (const [key, id] of catNameToId.entries()) {
-          if (normCat.includes(key) || key.includes(normCat)) {
-            catId = id;
-            break;
+      // 1. Create categories
+      for (const cat of categories) {
+        const norm = (cat.name || '').toLowerCase().trim();
+        if (!norm) continue;
+
+        if (!catNameToId.has(norm)) {
+          const res = this.createCategory({
+            name: cat.name.trim(),
+            course_type: cat.course_type || 'Main Course',
+            dietary_scope: cat.dietary_scope || 'Veg Only',
+            venue_id: defaultVenueId,
+            outlet_id: defaultVenueId
+          });
+          if (res.success && res.category) {
+            catNameToId.set(norm, res.category.id);
+            categoriesCreated++;
           }
         }
-        if (!catId && this.categories.length > 0) {
-          catId = this.categories[0].id;
+      }
+
+      // 2. Create dishes
+      for (const dish of dishes) {
+        const normCat = (dish.category || '').toLowerCase().trim();
+        let catId = catNameToId.get(normCat);
+        if (!catId) {
+          for (const [key, id] of catNameToId.entries()) {
+            if (normCat.includes(key) || key.includes(normCat)) {
+              catId = id;
+              break;
+            }
+          }
+          if (!catId && this.categories.length > 0) {
+            catId = this.categories[0].id;
+          }
+        }
+
+        // Avoid duplicate dish under this category
+        const existing = this.dishes.find(d => 
+          d.name.toLowerCase().trim() === dish.name.toLowerCase().trim() &&
+          (!catId || d.category_id === catId)
+        );
+
+        if (!existing) {
+          const res = this.createDish({
+            name: dish.name.trim(),
+            category_id: catId,
+            price: dish.price || 0,
+            description: dish.description || '',
+            dietary_tag: dish.dietary_tag || 'Veg',
+            is_available: true,
+            stock_quantity: 50,
+            variations: dish.variations || [],
+            venue_id: defaultVenueId,
+            outlet_id: defaultVenueId
+          });
+          if (res.success) {
+            dishesCreated++;
+          }
         }
       }
 
-      // Avoid duplicate dish under this category
-      const existing = this.dishes.find(d => 
-        d.name.toLowerCase().trim() === dish.name.toLowerCase().trim() &&
-        (!catId || d.category_id === catId)
-      );
+      this.recordAuditLog({
+        action: 'MASTER_MENU_INGESTION',
+        actionLabel: 'Smart Menu Text Ingested by Master Admin',
+        targetItem: `${categoriesCreated} categories, ${dishesCreated} dishes`,
+        initiatorStaffId: this.currentStaff?.id || this.currentUser?.id,
+        initiatorStaffName: this.currentStaff?.name || this.currentUser?.name || 'Admin',
+        initiatorRole: callerRole || ROLES.ADMIN,
+        reason: 'Supabase Master Account Menu Ingestion'
+      });
 
-      if (!existing) {
-        const res = this.createDish({
-          name: dish.name.trim(),
-          category_id: catId,
-          price: dish.price || 0,
-          description: dish.description || '',
-          dietary_tag: dish.dietary_tag || 'Veg',
-          is_available: true,
-          stock_quantity: 50,
-          variations: dish.variations || []
-        });
-        if (res.success) {
-          dishesCreated++;
-        }
-      }
+      this.playSound('bell');
+      this.notify();
+
+      return {
+        success: true,
+        categoriesCreated,
+        dishesCreated,
+        totalCategories: this.categories.length,
+        totalDishes: this.dishes.length
+      };
+    } finally {
+      this.elevationExpiry = prevElevation;
     }
-
-    this.recordAuditLog({
-      action: 'MASTER_MENU_INGESTION',
-      actionLabel: 'Smart Menu Text Ingested by Master Admin',
-      targetItem: `${categoriesCreated} categories, ${dishesCreated} dishes`,
-      initiatorStaffId: this.currentStaff?.id,
-      initiatorStaffName: this.currentStaff?.name,
-      initiatorRole: ROLES.ADMIN,
-      reason: 'Supabase Master Account Menu Ingestion'
-    });
-
-    this.playSound('bell');
-    this.notify();
-
-    return {
-      success: true,
-      categoriesCreated,
-      dishesCreated,
-      totalCategories: this.categories.length,
-      totalDishes: this.dishes.length
-    };
   }
 
   /**
