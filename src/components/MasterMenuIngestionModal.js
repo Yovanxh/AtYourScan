@@ -413,3 +413,9 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
 
   render();
 }
+
+if (typeof window !== 'undefined') {
+  window.renderMasterMenuIngestionModal = renderMasterMenuIngestionModal;
+}
+
+export default renderMasterMenuIngestionModal;

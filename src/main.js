@@ -1843,9 +1843,11 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   // Prevents button decoupling when views re-render
   if (typeof document.addEventListener === 'function') {
     document.addEventListener('click', (e) => {
-      const aiBtn = e.target.closest('#tab-btn-master-ai, #btn-ai-menu-import');
+      const aiBtn = e.target.closest('#nav-master-ai-menu-btn, #tab-btn-master-ai, #btn-ai-menu-import');
       if (!aiBtn) return;
+
       e.preventDefault();
+      e.stopPropagation();
 
       // 1. Update visual tab state cleanly across all tabs in ribbon if present
       document.querySelectorAll('#tab-btn-catalog, #tab-btn-text, #tab-btn-image, #tab-btn-master-ai').forEach(btn => {
@@ -1863,17 +1865,23 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
       if (!layer) {
         layer = document.createElement('div');
         layer.id = 'app-modal-layer';
-        layer.className = 'relative z-50';
+        layer.className = 'fixed inset-0 z-50 flex items-center justify-center';
         document.body?.appendChild(layer);
       }
 
-      if (typeof renderMasterMenuIngestionModal === 'function') {
-        renderMasterMenuIngestionModal(layer, store, {
+      const modalFn = typeof renderMasterMenuIngestionModal === 'function'
+        ? renderMasterMenuIngestionModal
+        : (typeof window !== 'undefined' ? window.renderMasterMenuIngestionModal : null);
+
+      if (typeof modalFn === 'function') {
+        modalFn(layer, store, {
           onComplete: (summary) => {
             if (typeof renderNavRail === 'function') renderNavRail();
             if (typeof switchView === 'function' && currentView) switchView(currentView, false);
           }
         });
+      } else {
+        console.error('[AI Menu Import] renderMasterMenuIngestionModal could not be found.');
       }
     });
   }
