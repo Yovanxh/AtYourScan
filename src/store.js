@@ -3812,7 +3812,7 @@ class ReactiveStore {
    * @returns {Promise<{ success: boolean, categoriesCreated: number, dishesCreated: number, error?: string, status?: number }>}
    */
   async importParsedMenu({ categories = [], dishes = [], token = null } = {}) {
-    let callerRole = (this.currentStaff?.role || '').toLowerCase();
+    let callerRole = (this.currentStaff?.role || this.currentUser?.role || '').toLowerCase();
     if (token) {
       try {
         const verified = verifySSOToken(String(token).replace(/^Bearer\s+/i, ''));
@@ -3822,7 +3822,7 @@ class ReactiveStore {
       } catch {}
     }
 
-    if (callerRole !== 'admin') {
+    if (!['admin', 'cafe_admin', 'master_admin', 'owner'].includes(callerRole)) {
       return { success: false, error: '403 Forbidden: Only Admin accounts are authorized to import menus', status: 403 };
     }
 
@@ -3924,7 +3924,7 @@ class ReactiveStore {
    * @returns {Promise<{ success: boolean, categories?: Array, dishes?: Array, status?: number, error?: string }>}
    */
   async ingestGeminiMenu({ text = '', image = null, token = null } = {}) {
-    let callerRole = (this.currentStaff?.role || '').toLowerCase();
+    let callerRole = (this.currentStaff?.role || this.currentUser?.role || '').toLowerCase();
     if (token) {
       try {
         const verified = verifySSOToken(String(token).replace(/^Bearer\s+/i, ''));
@@ -3934,7 +3934,7 @@ class ReactiveStore {
       } catch {}
     }
 
-    if (callerRole !== 'admin') {
+    if (!['admin', 'cafe_admin', 'master_admin', 'owner'].includes(callerRole)) {
       return { success: false, status: 403, error: '403 Forbidden: Caller lacks admin authorization for Gemini menu ingestion' };
     }
 

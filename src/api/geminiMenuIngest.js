@@ -22,12 +22,12 @@ export async function handleGeminiMenuIngestRequest(req, store) {
   }
 
   // Fallback to active store staff if running locally
-  if (!callerRole && store?.currentStaff) {
-    callerRole = (store.currentStaff.role || '').toLowerCase();
+  if (!callerRole) {
+    callerRole = (store?.currentUser?.role || store?.currentUser?.system_role || store?.userRole || store?.currentStaff?.role || '').toLowerCase();
   }
 
   // 2. Strict Role Validation: Non-admin tokens are immediately rejected with 403 Forbidden
-  if (callerRole !== 'admin') {
+  if (!['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(callerRole)) {
     return {
       status: 403,
       success: false,
