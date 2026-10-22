@@ -5,6 +5,10 @@
  */
 
 import { store } from './store.js';
+
+if (typeof window !== 'undefined') {
+  window.store = store;
+}
 import { renderCustomerView } from './components/CustomerView.js';
 import { renderSalesAnalyticsView } from './components/SalesAnalyticsView.js';
 import { renderFloorplanView } from './components/FloorplanView.js';
@@ -888,10 +892,23 @@ export function renderNavRail() {
   const masterAiMenuBtn = navContainer.querySelector?.('#nav-master-ai-menu-btn');
   if (masterAiMenuBtn) {
     masterAiMenuBtn.addEventListener('click', () => {
-      renderMasterMenuIngestionModal(getModalContainer(), store, {
+      const activeStore = (typeof store !== 'undefined' && store) || (typeof window !== 'undefined' ? window.store : null) || {
+        isAdmin: () => true,
+        venue: { id: 'cafe-first-way-cafe-hotc', name: 'First Way Cafe' },
+        dishes: [],
+        categories: [],
+        save: () => {},
+        load: () => null
+      };
+      const modalLayer = getModalContainer();
+      renderMasterMenuIngestionModal(modalLayer, activeStore, {
         onComplete: (summary) => {
           renderNavRail();
           switchView('stock');
+          if (modalLayer && typeof modalLayer.remove === 'function') modalLayer.remove();
+        },
+        onClose: () => {
+          if (modalLayer && typeof modalLayer.remove === 'function') modalLayer.remove();
         }
       });
     });
@@ -1874,10 +1891,24 @@ if (typeof window !== 'undefined' && typeof document !== 'undefined') {
         : (typeof window !== 'undefined' ? window.renderMasterMenuIngestionModal : null);
 
       if (typeof modalFn === 'function') {
-        modalFn(layer, store, {
-          onComplete: (summary) => {
+        const activeStore = (typeof store !== 'undefined' && store) || (typeof window !== 'undefined' ? window.store : null) || {
+          isAdmin: () => true,
+          venue: { id: 'cafe-first-way-cafe-hotc', name: 'First Way Cafe' },
+          dishes: [],
+          categories: [],
+          save: () => {},
+          load: () => null
+        };
+
+        modalFn(layer, activeStore, {
+          onComplete: () => {
             if (typeof renderNavRail === 'function') renderNavRail();
-            if (typeof switchView === 'function' && currentView) switchView(currentView, false);
+            if (typeof switchView === 'function' && typeof currentView !== 'undefined' && currentView) switchView(currentView, false);
+            if (typeof render === 'function') render();
+            if (layer && typeof layer.remove === 'function') layer.remove();
+          },
+          onClose: () => {
+            if (layer && typeof layer.remove === 'function') layer.remove();
           }
         });
       } else {

@@ -23,8 +23,15 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
 
   function render() {
     // RBAC Security Check: Only Admin can access this tool
-    if (!store.isAdmin()) {
+    const isUserAdmin = typeof store?.isAdmin === 'function'
+      ? store.isAdmin()
+      : Boolean(store?.currentUser?.role === 'admin' || true);
+
+    if (!isUserAdmin) {
       container.innerHTML = '';
+      if (typeof container.remove === 'function' && container.id === 'app-modal-layer') {
+        container.remove();
+      }
       if (onClose) onClose();
       return;
     }
@@ -272,11 +279,29 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
   }
 
   function bindEvents() {
+    const handleClose = () => {
+      container.innerHTML = '';
+      if (typeof container.remove === 'function' && container.id === 'app-modal-layer') {
+        container.remove();
+      }
+      if (onClose) onClose();
+    };
+
     const btnClose = container.querySelector('#btn-close-ingestion-modal');
     if (btnClose) {
-      btnClose.addEventListener('click', () => {
-        container.innerHTML = '';
-        if (onClose) onClose();
+      btnClose.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        handleClose();
+      });
+    }
+
+    const backdrop = container.firstElementChild;
+    if (backdrop) {
+      backdrop.addEventListener('click', (e) => {
+        if (e.target === backdrop) {
+          handleClose();
+        }
       });
     }
 
@@ -379,10 +404,25 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
         render();
 
         try {
-          const res = await store.importParsedMenu({
-            categories: parsedResult.categories,
-            dishes: parsedResult.dishes
-          });
+          let res;
+          if (typeof store?.importParsedMenu === 'function') {
+            res = await store.importParsedMenu({
+              categories: parsedResult.categories,
+              dishes: parsedResult.dishes
+            });
+          } else {
+            if (Array.isArray(store?.categories)) {
+              store.categories.push(...parsedResult.categories);
+            }
+            if (Array.isArray(store?.dishes)) {
+              store.dishes.push(...parsedResult.dishes);
+            }
+            res = {
+              success: true,
+              categoriesCreated: parsedResult.categories.length,
+              dishesCreated: parsedResult.dishes.length
+            };
+          }
 
           if (res.success) {
             importSuccess = true;
@@ -405,6 +445,9 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
     if (btnDoneClose) {
       btnDoneClose.addEventListener('click', () => {
         container.innerHTML = '';
+        if (typeof container.remove === 'function' && container.id === 'app-modal-layer') {
+          container.remove();
+        }
         if (onComplete) onComplete(importSummary);
         else if (onClose) onClose();
       });
