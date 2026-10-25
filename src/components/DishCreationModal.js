@@ -12,7 +12,7 @@
  * - Admin RBAC Guard with PIN Elevation Challenge
  */
 
-import { supabase } from '../../supabase.js';
+import { supabase } from '../supabaseClient.js';
 import { requestManagerOverride } from './ManagerOverrideModal.js';
 import { renderCategoryBuilderModal } from './CategoryBuilderModal.js';
 

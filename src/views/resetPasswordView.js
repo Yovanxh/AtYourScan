@@ -9,7 +9,7 @@
  * - Full Obsidian UI Theme Unification (#08080a canvas, #111115 card, #26262e borders, Vibrant Orange #f97316 accents)
  */
 
-import { supabase } from '../../supabase.js';
+import { supabase } from '../supabaseClient.js';
 
 export function renderResetPasswordView(container, store, { onNavigate } = {}) {
   if (!container) return () => {};

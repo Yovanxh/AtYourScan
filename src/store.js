@@ -4,7 +4,7 @@
  * Milestone 1 Extended Domain Store (F4)
  */
 
-import { supabase } from '../supabase.js';
+import { supabase } from './supabaseClient.js';
 import { 
   ROLES, 
   PERMISSIONS, 
@@ -662,6 +662,7 @@ export const INITIAL_MASTER_AUDIT_LOGS = [];
 class ReactiveStore {
   constructor() {
     this.listeners = new Set();
+    this.supabase = supabase;
 
     // One-time migration: purge legacy mock / demo keys from browser localStorage in production
     const mockPurgedKey = 'ays_prod_clean_purge_v5';
@@ -1080,6 +1081,10 @@ class ReactiveStore {
 
   notify(eventData) {
     this.listeners.forEach(fn => fn(this, eventData));
+  }
+
+  notifyListeners(eventData = { type: 'STATE_CHANGED' }) {
+    this.notify(eventData);
   }
 
   subscribe(listener) {
@@ -2136,6 +2141,37 @@ class ReactiveStore {
   // --- DISHES ---
   getDishes() {
     return this.dishes || [];
+  }
+
+  async loadDishes(venueId) {
+    const client = this.supabase || supabase;
+    if (!client) {
+      console.error('[Store] Supabase client is not available.');
+      return [];
+    }
+
+    const targetVenue = venueId || this.venue?.id || 'cafe-first-way-cafe-hotc';
+    let { data, error } = await client
+      .from('dishes')
+      .select('*')
+      .eq('venue_id', targetVenue);
+
+    if (!data || data.length === 0) {
+      const fallback = await client.from('dishes').select('*');
+      if (fallback.data && fallback.data.length > 0) {
+        data = fallback.data;
+      }
+    }
+
+    this.dishes = data || [];
+    this.save?.('ays_dishes', this.dishes);
+    this.notifyListeners?.();
+    this.notify?.({ type: 'CATALOG_SYNCED' });
+    return this.dishes;
+  }
+
+  async fetchDishes(venueId) {
+    return this.loadDishes(venueId);
   }
 
   createDish(dishData) {
@@ -3674,7 +3710,7 @@ class ReactiveStore {
     }
     if (!staff || !staff.role) return false;
     const staffRole = (staff.role || '').toLowerCase();
-    return ['admin', 'cafe_admin', 'master_admin', 'owner'].includes(staffRole);
+    return ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(staffRole);
   }
 
   /**

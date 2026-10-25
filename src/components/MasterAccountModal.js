@@ -6,7 +6,7 @@
  * and elevation to perform high-privilege menu architecture ingestion.
  */
 
-import { supabase } from '../../supabase.js';
+import { supabase } from '../supabaseClient.js';
 
 export function renderMasterAccountModal(container, store, options = {}) {
   const { onSuccess = null, onClose = null } = options;

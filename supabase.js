@@ -1,4 +1,2 @@
-import { supabase } from './src/supabaseClient.js';
-
-export { supabase };
-export default supabase;
+export * from './src/supabaseClient.js';
+export { default } from './src/supabaseClient.js';

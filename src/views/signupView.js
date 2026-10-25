@@ -10,7 +10,7 @@
  */
 
 import { MASTER_BOOTSTRAP_SECRET } from '../auth.js';
-import { supabase } from '../supabase.js';
+import { supabase } from '../supabaseClient.js';
 
 export function renderSignupView(container, store, { onNavigate, initialType = 'cafe' } = {}) {
   if (!container) return () => {};

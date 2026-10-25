@@ -1696,8 +1696,34 @@ export function renderCustomerView(container, store, options = {}) {
     render();
   });
 
-  // Initial render
-  render();
+  // Resolve target venue ID
+  const getVenueId = () => {
+    if (typeof window !== 'undefined' && window.location) {
+      const p = new URLSearchParams(window.location.search);
+      const q = p.get('cafe') || p.get('cafe_id') || p.get('cafeId') || p.get('venue');
+      if (q) return q;
+      const pathMatch = window.location.pathname.match(/\/v\/([^\/]+)/);
+      if (pathMatch) return decodeURIComponent(pathMatch[1]);
+    }
+    return store.venue?.id || 'cafe-first-way-cafe-hotc';
+  };
+
+  const venueId = getVenueId();
+
+  // When mounting, if store.dishes is empty, load dishes from Supabase before rendering
+  if ((!store.dishes || store.dishes.length === 0) && typeof store.loadDishes === 'function') {
+    (async () => {
+      try {
+        await store.loadDishes(venueId);
+      } catch (err) {
+        console.warn('[CustomerView] Failed to load dishes from Supabase:', err);
+      }
+      render();
+    })();
+  } else {
+    // Initial render
+    render();
+  }
 
   return () => unsubscribe();
 }

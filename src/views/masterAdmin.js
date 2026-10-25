@@ -9,7 +9,7 @@
 
 import { isSuperAdmin, SUPER_ADMIN_ACCOUNTS } from '../auth.js';
 import { renderSuperAdminLoginModal } from '../components/SuperAdminLoginModal.js';
-import { supabase } from '../supabase.js';
+import { supabase } from '../supabaseClient.js';
 
 export function renderMasterAdminView(container, store) {
   if (!container) return () => {};

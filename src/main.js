@@ -5,9 +5,14 @@
  */
 
 import { store } from './store.js';
+import { supabase } from './supabaseClient.js';
 
 if (typeof window !== 'undefined') {
+  window.supabase = supabase;
   window.store = store;
+  if (window.store) {
+    window.store.supabase = supabase;
+  }
 }
 import { renderCustomerView } from './components/CustomerView.js';
 import { renderSalesAnalyticsView } from './components/SalesAnalyticsView.js';
@@ -29,7 +34,6 @@ import { renderSignupView } from './views/signupView.js';
 import { renderLoginView } from './views/loginView.js';
 import { renderResetPasswordView } from './views/resetPasswordView.js';
 import { MasterAdminGuard, CafeAdminGuard, evaluateRouteGuard } from './components/ProtectedRoute.js';
-import { supabase } from '../supabase.js';
 
 // Route state
 export const getTableFromUrl = () => {
