@@ -21,6 +21,11 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
   let importSummary = null;
   let errorMessage = '';
 
+  function showError(msg) {
+    errorMessage = msg;
+    render();
+  }
+
   function render() {
     // RBAC Security Check: Only Admin / Authorized Management can access this tool
     const role = (store?.currentUser?.role || store?.userRole || '').toLowerCase();
@@ -384,8 +389,7 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
           : ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id);
 
         if (!isAuthorizedAdmin) {
-          errorMessage = '403 Forbidden: Only Admin accounts are authorized to import menus';
-          render();
+          showError('403 Forbidden: Only Admin accounts are authorized to import menus');
           return;
         }
 
@@ -427,8 +431,7 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
           : ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id);
 
         if (!isAuthorizedAdmin) {
-          errorMessage = '403 Forbidden: Only Admin accounts are authorized to import menus';
-          render();
+          showError('403 Forbidden: Only Admin accounts are authorized to import menus');
           return;
         }
 
