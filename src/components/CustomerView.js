@@ -479,13 +479,19 @@ export function renderCustomerView(container, store, options = {}) {
 
             <!-- Menu Item Cards List -->
             <div class="space-y-3">
-              ${filteredItems.length === 0 ? `
+              ${rawDishes.length === 0 ? `
+                <div class="text-center py-16 px-4 bg-white rounded-3xl border border-[#E3E8ED] shadow-sm flex flex-col items-center justify-center">
+                  <div class="w-8 h-8 border-3 border-[#FF7622] border-t-transparent rounded-full animate-spin mb-3"></div>
+                  <p class="text-sm font-bold text-[#181C2E]">Loading Fresh Menu...</p>
+                  <p class="text-xs text-[#646982] mt-1">Connecting to live cloud catalog</p>
+                </div>
+              ` : (filteredItems.length === 0 ? `
                 <div class="text-center py-16 px-4 bg-white rounded-3xl border border-[#E3E8ED] shadow-sm">
                   <p class="text-sm font-bold text-[#181C2E]">No dishes match your filter</p>
                   <p class="text-xs text-[#646982] mt-1">Try resetting search or dietary filters</p>
                   <button id="reset-filter-btn" class="mt-4 px-4 py-2 bg-[#F0F5FA] hover:bg-[#E3E8ED] text-xs font-bold rounded-xl text-[#181C2E]">Reset Filters</button>
                 </div>
-              ` : filteredItems.map(item => renderItemCard(item, store)).join('')}
+              ` : filteredItems.map(item => renderItemCard(item, store)).join(''))}
             </div>
           `)}
         </main>

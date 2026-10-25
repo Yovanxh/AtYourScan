@@ -2144,27 +2144,52 @@ class ReactiveStore {
   }
 
   async loadDishes(venueId) {
-    const client = this.supabase || supabase;
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
     if (!client) {
-      console.error('[Store] Supabase client is not available.');
+      console.warn('[Store] Supabase client not ready for loadDishes');
       return [];
     }
 
     const targetVenue = venueId || this.venue?.id || 'cafe-first-way-cafe-hotc';
-    let { data, error } = await client
+
+    let { data: dishes } = await client
       .from('dishes')
       .select('*')
       .eq('venue_id', targetVenue);
 
-    if (!data || data.length === 0) {
+    if (!dishes || dishes.length === 0) {
       const fallback = await client.from('dishes').select('*');
       if (fallback.data && fallback.data.length > 0) {
-        data = fallback.data;
+        dishes = fallback.data;
       }
     }
 
-    this.dishes = data || [];
+    let { data: categories } = await client
+      .from('categories')
+      .select('*')
+      .eq('venue_id', targetVenue);
+
+    if (!categories || categories.length === 0) {
+      const fallbackCats = await client.from('categories').select('*');
+      if (fallbackCats.data && fallbackCats.data.length > 0) {
+        categories = fallbackCats.data;
+      }
+    }
+
+    const catMap = new Map((categories || []).map(c => [c.id, c.name]));
+    this.categories = categories || [];
+    this.dishes = (dishes || []).map(d => ({
+      ...d,
+      category: d.category || catMap.get(d.category_id) || d.course || 'Specialty Coffee',
+      dietary_tag: d.dietary_tag || (d.dietary_type === 'non-veg' ? 'Non-Veg' : 'Veg'),
+      dietary: (d.dietary || d.dietary_type || 'veg').toLowerCase()
+    }));
+    this.menuItems = this.dishes;
+
     this.save?.('ays_dishes', this.dishes);
+    this.save?.('ays_menu', this.menuItems);
+    this.save?.('ays_categories', this.categories);
+
     this.notifyListeners?.();
     this.notify?.({ type: 'CATALOG_SYNCED' });
     return this.dishes;

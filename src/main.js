@@ -55,9 +55,9 @@ export const getTableFromUrl = () => {
 export const isGuestTableUrl = () => {
   if (typeof window === 'undefined' || !window.location) return false;
   const params = new URLSearchParams(window.location.search);
-  if (params.has('table') || params.get('view') === 'customer') return true;
+  if (params.has('table') || params.get('view') === 'customer' || params.has('venue') || params.has('cafe') || params.has('cafe_id') || params.has('cafeId')) return true;
   const p = window.location.pathname.toLowerCase();
-  if (p.match(/\/(?:t|table)\/(\d+)/)) return true;
+  if (p.match(/\/(?:t|table)\/(\d+)/) || p.match(/\/v\/([^\/]+)/)) return true;
   return false;
 };
 
@@ -1753,6 +1753,13 @@ export async function initializeGatewayRouting() {
 
   // GUEST INVARIANT EXCEPTION: Guest table URLs bypass authentication in zero-auth mode
   if (isGuestTableUrl()) {
+    if (typeof store.loadDishes === 'function') {
+      try {
+        await store.loadDishes();
+      } catch (err) {
+        console.warn('[Routing] loadDishes error:', err);
+      }
+    }
     switchView('customer', false);
     return;
   }
@@ -1787,6 +1794,13 @@ export async function initializeGatewayRouting() {
   // 1. If unauthenticated, render /login gateway immediately (except customer / guest table)
   if (!activeSessionUser) {
     if (isGuestTableUrl() || path === 'customer') {
+      if (typeof store.loadDishes === 'function') {
+        try {
+          await store.loadDishes();
+        } catch (err) {
+          console.warn('[Routing] loadDishes error:', err);
+        }
+      }
       switchView('customer', false);
     } else if (path === 'signup' || path === 'login' || path === 'reset-password') {
       switchView(path, false);
@@ -1858,7 +1872,16 @@ export async function initializeGatewayRouting() {
 // Initial application boot in browser environment
 if (typeof window !== 'undefined' && typeof document !== 'undefined') {
   renderNavRail();
-  initializeGatewayRouting();
+  (async () => {
+    if (typeof store.loadDishes === 'function') {
+      try {
+        await store.loadDishes();
+      } catch (err) {
+        console.warn('[Boot] Initial loadDishes error:', err);
+      }
+    }
+    await initializeGatewayRouting();
+  })();
 
   // Persistent Delegated Event Listener for AI Menu Auto-Import
   // Uses capture phase (true) to prevent parent event cancellation
