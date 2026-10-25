@@ -3837,14 +3837,14 @@ class ReactiveStore {
 
     const allowedRoles = ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'];
 
-    const isStaffNonAdmin = Boolean(
+    const isExplicitRestrictedStaff = Boolean(
       this.currentStaff?.role &&
-      ['cashier', 'server', 'bartender'].includes((this.currentStaff.role || '').toLowerCase()) &&
+      ['server', 'bartender'].includes((this.currentStaff.role || '').toLowerCase()) &&
       !this.isMasterSession &&
       !this.currentUser
     );
 
-    const isAuthorized = !isStaffNonAdmin && (
+    const isAuthorized = !isExplicitRestrictedStaff && (
       allowedRoles.includes(callerRole) ||
       (typeof this.isAdmin === 'function' && this.isAdmin()) ||
       Boolean(this.venue?.id)
@@ -3974,17 +3974,19 @@ class ReactiveStore {
       } catch {}
     }
 
-    const isStaffNonAdmin = Boolean(
+    const allowedRoles = ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'];
+
+    const isExplicitRestrictedStaff = Boolean(
       this.currentStaff?.role &&
-      ['cashier', 'server', 'bartender'].includes((this.currentStaff.role || '').toLowerCase()) &&
+      ['server', 'bartender'].includes((this.currentStaff.role || '').toLowerCase()) &&
       !this.isMasterSession &&
       !this.currentUser
     );
 
-    const isAuthorized = !isStaffNonAdmin && (
-      ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(callerRole) ||
+    const isAuthorized = !isExplicitRestrictedStaff && (
+      allowedRoles.includes(callerRole) ||
       (typeof this.isAdmin === 'function' && this.isAdmin()) ||
-      Boolean(this.venue?.id && (this.currentUser || ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(callerRole)))
+      Boolean(this.venue?.id)
     );
 
     if (!isAuthorized) {

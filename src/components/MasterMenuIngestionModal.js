@@ -66,7 +66,7 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
               <div>
                 <div class="flex items-center gap-2">
                   <span class="text-[10px] font-black uppercase tracking-wider text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full border border-amber-400/20">
-                    👑 Main Admin Exclusive
+                    👑 Café Admin & Management
                   </span>
                   <span class="text-[10px] text-slate-400 font-mono">
                     Supabase Auto-Sync
@@ -383,12 +383,16 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
 
     if (btnAnalyze) {
       btnAnalyze.addEventListener('click', () => {
-        const currentRole = store?.currentUser?.role || store?.userRole || '';
-        const hasAdminAccess = typeof store?.isAdmin === 'function'
-          ? store.isAdmin()
-          : ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(currentRole);
+        // Permanently allow any authenticated dashboard user, cafe_admin, admin, or active venue session
+        const hasPermission = Boolean(
+          store?.venue?.id ||
+          ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(store?.currentUser?.role) ||
+          ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(store?.userRole) ||
+          (typeof store?.isAdmin === 'function' && store.isAdmin())
+        );
 
-        if (!hasAdminAccess && !store?.venue?.id) {
+        if (!hasPermission) {
+          console.warn('[AI Ingest] User lacks administrative permissions.');
           showError('403 Forbidden: Only Admin accounts are authorized to import menus');
           return;
         }
@@ -425,12 +429,16 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
     const btnConfirmImport = container.querySelector('#btn-confirm-import');
     if (btnConfirmImport) {
       btnConfirmImport.addEventListener('click', async () => {
-        const currentRole = store?.currentUser?.role || store?.userRole || '';
-        const hasAdminAccess = typeof store?.isAdmin === 'function'
-          ? store.isAdmin()
-          : ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(currentRole);
+        // Permanently allow any authenticated dashboard user, cafe_admin, admin, or active venue session
+        const hasPermission = Boolean(
+          store?.venue?.id ||
+          ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(store?.currentUser?.role) ||
+          ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(store?.userRole) ||
+          (typeof store?.isAdmin === 'function' && store.isAdmin())
+        );
 
-        if (!hasAdminAccess && !store?.venue?.id) {
+        if (!hasPermission) {
+          console.warn('[AI Ingest] User lacks administrative permissions.');
           showError('403 Forbidden: Only Admin accounts are authorized to import menus');
           return;
         }
