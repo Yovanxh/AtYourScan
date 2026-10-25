@@ -383,12 +383,12 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
 
     if (btnAnalyze) {
       btnAnalyze.addEventListener('click', () => {
-        const role = store?.currentUser?.role || store?.userRole || '';
-        const isAuthorizedAdmin = typeof store?.isAdmin === 'function'
-          ? (store.isAdmin() || ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id))
-          : ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id);
+        const currentRole = store?.currentUser?.role || store?.userRole || '';
+        const hasAdminAccess = typeof store?.isAdmin === 'function'
+          ? store.isAdmin()
+          : ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(currentRole);
 
-        if (!isAuthorizedAdmin) {
+        if (!hasAdminAccess && !store?.venue?.id) {
           showError('403 Forbidden: Only Admin accounts are authorized to import menus');
           return;
         }
@@ -425,12 +425,12 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
     const btnConfirmImport = container.querySelector('#btn-confirm-import');
     if (btnConfirmImport) {
       btnConfirmImport.addEventListener('click', async () => {
-        const role = store?.currentUser?.role || store?.userRole || '';
-        const isAuthorizedAdmin = typeof store?.isAdmin === 'function'
-          ? (store.isAdmin() || ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id))
-          : ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(role) || Boolean(store?.venue?.id);
+        const currentRole = store?.currentUser?.role || store?.userRole || '';
+        const hasAdminAccess = typeof store?.isAdmin === 'function'
+          ? store.isAdmin()
+          : ['admin', 'cafe_admin', 'master_admin', 'owner', 'manager'].includes(currentRole);
 
-        if (!isAuthorizedAdmin) {
+        if (!hasAdminAccess && !store?.venue?.id) {
           showError('403 Forbidden: Only Admin accounts are authorized to import menus');
           return;
         }
