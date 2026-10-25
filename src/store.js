@@ -729,19 +729,39 @@ class ReactiveStore {
 
     // --- DYNAMIC MENU CATALOG & BILL OF MATERIALS (BOM) SUBSYSTEM ---
     this.catalogPurged = this.load('ays_catalog_purged', false);
-    const initialDishes = isTestEnv ? INITIAL_MENU_ITEMS : [];
-    this.categories = this.load('ays_categories', []);
+    
+    // Load from cache first
+    let cachedDishes = [];
+    let cachedCats = [];
+    try {
+      if (typeof localStorage !== 'undefined') {
+        cachedDishes = JSON.parse(localStorage.getItem('ays_dishes_cache') || '[]');
+        cachedCats = JSON.parse(localStorage.getItem('ays_categories_cache') || '[]');
+      }
+    } catch (e) {}
+
+    const initialDishes = isTestEnv ? INITIAL_MENU_ITEMS : (cachedDishes.length > 0 ? cachedDishes : []);
+    this.categories = cachedCats.length > 0 ? cachedCats : this.load('ays_categories', []);
     this.dishes = this.load('ays_dishes', initialDishes);
+    if ((!this.dishes || this.dishes.length === 0) && cachedDishes.length > 0) {
+      this.dishes = cachedDishes;
+    }
     this.inventoryItems = this.load('ays_inventory_items', []);
     this.dishIngredients = this.load('ays_dish_ingredients', []);
     this.elevationExpiry = 0;
 
     if (!isTestEnv && !this.venue) {
-      this.menuItems = [];
-      this.dishes = [];
-      this.categories = [];
+      if (!this.dishes || this.dishes.length === 0) {
+        this.menuItems = [];
+        this.dishes = [];
+        this.categories = [];
+      } else {
+        this.menuItems = this.dishes;
+        this.menu = this.dishes;
+      }
     } else if (this.dishes.length > 0) {
       this.menuItems = this.dishes;
+      this.menu = this.dishes;
     } else if (!this.catalogPurged && isTestEnv) {
       const loadedMenu = this.load('ays_menu', initialDishes);
       this.menuItems = (loadedMenu || []).map(item => {
@@ -1330,30 +1350,10 @@ class ReactiveStore {
       }
 
       // 5. Sync dishes from Supabase Cloud
-      if (currentVenueId) {
-        const { data: dbDishes } = await supabase.from('menu_items').select('*');
-        if (Array.isArray(dbDishes)) {
-          const filtered = dbDishes.filter(d => (d.outlet_id === currentVenueId || d.venue_id === currentVenueId));
-          this.dishes = filtered.map(d => ({
-            id: d.id,
-            outlet_id: d.outlet_id || d.venue_id,
-            category: d.category || 'Specialty Coffee',
-            name: d.name,
-            description: d.description || '',
-            price: parseFloat(d.price) || 0,
-            is_available: d.is_available !== false,
-            stock_quantity: d.stock_quantity || 50,
-            dietary_tag: d.dietary_tag || 'Veg',
-            dietary: (d.dietary_tag || 'Veg').toLowerCase()
-          }));
-          this.menuItems = this.dishes;
-          this.save('ays_dishes', this.dishes);
-          this.save('ays_menu', this.menuItems);
-          this.notify({ type: 'CATALOG_SYNCED' });
-        }
-      } else if (!isTestEnv) {
-        this.dishes = [];
-        this.menuItems = [];
+      try {
+        await this.loadDishes(currentVenueId);
+      } catch (catErr) {
+        console.warn('[Sync] loadDishes error in syncWithSupabase:', catErr);
       }
     } catch (err) {
       console.info('Supabase cloud state hydration:', err.message);
@@ -2145,54 +2145,100 @@ class ReactiveStore {
 
   async loadDishes(venueId) {
     const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
-    if (!client) {
-      console.warn('[Store] Supabase client not ready for loadDishes');
-      return [];
-    }
+    if (!client) return [];
 
     const targetVenue = venueId || this.venue?.id || 'cafe-first-way-cafe-hotc';
 
-    let { data: dishes } = await client
-      .from('dishes')
-      .select('*')
-      .eq('venue_id', targetVenue);
-
-    if (!dishes || dishes.length === 0) {
-      const fallback = await client.from('dishes').select('*');
-      if (fallback.data && fallback.data.length > 0) {
-        dishes = fallback.data;
+    try {
+      // 1. Fetch Categories (with full table fallback)
+      let { data: cats } = await client.from('categories').select('*').eq('venue_id', targetVenue).order('display_order', { ascending: true });
+      if (!cats || cats.length === 0) {
+        const res = await client.from('categories').select('*');
+        cats = res.data || [];
       }
-    }
 
-    let { data: categories } = await client
-      .from('categories')
-      .select('*')
-      .eq('venue_id', targetVenue);
-
-    if (!categories || categories.length === 0) {
-      const fallbackCats = await client.from('categories').select('*');
-      if (fallbackCats.data && fallbackCats.data.length > 0) {
-        categories = fallbackCats.data;
+      // 2. Fetch Dishes (with full table fallback)
+      let { data: rawDishes } = await client.from('dishes').select('*').eq('venue_id', targetVenue);
+      if (!rawDishes || rawDishes.length === 0) {
+        const res = await client.from('dishes').select('*');
+        rawDishes = res.data || [];
       }
+
+      // 3. Build Category Lookup Map (ID -> Name & Name -> ID)
+      const catById = {};
+      const normalizedCats = (cats || []).map(c => {
+        catById[c.id] = c.name;
+        return {
+          ...c,
+          id: c.id,
+          name: c.name,
+          title: c.name,
+          label: c.name
+        };
+      });
+
+      // 4. Normalize Every Dish so UI filters NEVER fail
+      const normalizedDishes = (rawDishes || []).map(d => {
+        const catName = catById[d.category_id] || d.category || 'General';
+        return {
+          ...d,
+          id: d.id,
+          name: d.name,
+          title: d.name,
+          price: Number(d.price) || 0,
+          description: d.description || '',
+          desc: d.description || '',
+          category_id: d.category_id || (normalizedCats[0]?.id ?? 'all'),
+          categoryId: d.category_id || (normalizedCats[0]?.id ?? 'all'),
+          category: catName,
+          categoryName: catName,
+          course: d.course || 'Main Course',
+          dietary_type: d.dietary_type || 'veg',
+          dietary: d.dietary_type || 'veg',
+          type: d.dietary_type || 'veg',
+          isVeg: (d.dietary_type || 'veg').toLowerCase() === 'veg',
+          is_available: d.is_available !== false,
+          available: d.is_available !== false,
+          inStock: d.is_available !== false,
+          image: d.image_url || d.image || '',
+          image_url: d.image_url || d.image || '',
+          variants: Array.isArray(d.variants) ? d.variants : []
+        };
+      });
+
+      if (normalizedDishes.length > 0) {
+        this.categories = normalizedCats;
+        this.dishes = normalizedDishes;
+        this.menuItems = normalizedDishes;
+        this.menu = normalizedDishes;
+        this.catalogPurged = false;
+
+        if (this.venue) {
+          this.venue.dishes = normalizedDishes;
+          this.venue.categories = normalizedCats;
+          this.venue.menu = normalizedDishes;
+        }
+
+        // Sync to localStorage so local hydration never wipes it with []
+        try {
+          localStorage.setItem('ays_dishes_cache', JSON.stringify(normalizedDishes));
+          localStorage.setItem('ays_categories_cache', JSON.stringify(normalizedCats));
+          this.save?.('ays_dishes', normalizedDishes);
+          this.save?.('ays_menu', normalizedDishes);
+          this.save?.('ays_categories', normalizedCats);
+        } catch (e) {}
+      }
+
+      this.notifyListeners?.();
+      if (this.listeners && typeof this.listeners.forEach === 'function') {
+        this.listeners.forEach(fn => { try { fn(this); } catch (e) {} });
+      }
+
+      return this.dishes;
+    } catch (err) {
+      console.error('[Store] loadDishes failed:', err);
+      return this.dishes || [];
     }
-
-    const catMap = new Map((categories || []).map(c => [c.id, c.name]));
-    this.categories = categories || [];
-    this.dishes = (dishes || []).map(d => ({
-      ...d,
-      category: d.category || catMap.get(d.category_id) || d.course || 'Specialty Coffee',
-      dietary_tag: d.dietary_tag || (d.dietary_type === 'non-veg' ? 'Non-Veg' : 'Veg'),
-      dietary: (d.dietary || d.dietary_type || 'veg').toLowerCase()
-    }));
-    this.menuItems = this.dishes;
-
-    this.save?.('ays_dishes', this.dishes);
-    this.save?.('ays_menu', this.menuItems);
-    this.save?.('ays_categories', this.categories);
-
-    this.notifyListeners?.();
-    this.notify?.({ type: 'CATALOG_SYNCED' });
-    return this.dishes;
   }
 
   async fetchDishes(venueId) {
@@ -5780,10 +5826,13 @@ class ReactiveStore {
     this.save(`ays_tables_${cafeId}`, this.tables);
     this.save('ays_tables', this.tables);
 
-    // 6. Isolated Menu Catalog: Starts 100% clean []
-    this.categories = this.load(`ays_categories_${cafeId}`, []);
-    this.dishes = this.load(`ays_dishes_${cafeId}`, []);
-    this.menuItems = this.load(`ays_menu_${cafeId}`, []);
+    // 6. Isolated Menu Catalog: Preserves active catalog / fetches from cloud
+    this.categories = this.load(`ays_categories_${cafeId}`, (this.categories && this.categories.length > 0) ? this.categories : []);
+    this.dishes = this.load(`ays_dishes_${cafeId}`, (this.dishes && this.dishes.length > 0) ? this.dishes : []);
+    this.menuItems = this.load(`ays_menu_${cafeId}`, (this.menuItems && this.menuItems.length > 0) ? this.menuItems : this.dishes);
+    if (!this.dishes || this.dishes.length === 0) {
+      this.loadDishes(cafeId).catch(() => {});
+    }
     this.save(`ays_categories_${cafeId}`, this.categories);
     this.save(`ays_dishes_${cafeId}`, this.dishes);
     this.save(`ays_menu_${cafeId}`, this.menuItems);

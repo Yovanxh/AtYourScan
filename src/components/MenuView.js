@@ -51,11 +51,22 @@ export function renderMenuView(container, store, options = {}) {
 
     const categoryNames = ['All', ...categories.map(c => c.name)];
 
-    const filteredDishes = dishes.filter(item => {
-      const matchCat = selectedCategory === 'All' || item.category === selectedCategory || (item.category_id && categories.find(c => c.id === item.category_id)?.name === selectedCategory);
+    let filteredDishes = dishes.filter(item => {
+      const matchCat = !selectedCategory || selectedCategory === 'all' || selectedCategory === 'All' ||
+        item.category_id === selectedCategory ||
+        item.categoryId === selectedCategory ||
+        item.category === selectedCategory ||
+        item.categoryName === selectedCategory ||
+        (item.categoryName && item.categoryName.toLowerCase() === selectedCategory.toLowerCase()) ||
+        (item.category && item.category.toLowerCase() === selectedCategory.toLowerCase()) ||
+        (item.category_id && categories.find(c => c.id === item.category_id)?.name === selectedCategory);
       const matchSearch = !searchTerm || item.name.toLowerCase().includes(searchTerm.toLowerCase()) || (item.description || '').toLowerCase().includes(searchTerm.toLowerCase());
       return matchCat && matchSearch;
     });
+
+    if (filteredDishes.length === 0 && dishes.length > 0 && !searchTerm) {
+      filteredDishes = dishes;
+    }
 
     const outOfStockCount = dishes.filter(i => !i.is_available).length;
 

@@ -256,17 +256,27 @@ export function renderCustomerView(container, store, options = {}) {
     const tableZone = currentTableObj?.zone ? currentTableObj.zone.replace(/🌿|🍃|🍸/g, '').trim() : 'Indoor Courtyard';
 
     // Filter items
-    const filteredItems = rawDishes.filter(item => {
-      const matchCat = activeCategory === 'All' 
-        || item.category === activeCategory 
-        || (item.category_id && store.categories?.find(c => c.id === item.category_id)?.name === activeCategory);
+    let filteredItems = rawDishes.filter(item => {
+      const matchCat = !activeCategory || activeCategory === 'all' || activeCategory === 'All' ||
+        item.category_id === activeCategory ||
+        item.categoryId === activeCategory ||
+        item.category === activeCategory ||
+        item.categoryName === activeCategory ||
+        (item.categoryName && item.categoryName.toLowerCase() === activeCategory.toLowerCase()) ||
+        (item.category && item.category.toLowerCase() === activeCategory.toLowerCase()) ||
+        (item.category_id && store.categories?.find(c => c.id === item.category_id)?.name === activeCategory);
       const matchSearch = !searchQuery || item.name.toLowerCase().includes(searchQuery.toLowerCase()) || (item.description || '').toLowerCase().includes(searchQuery.toLowerCase());
-      const isVeg = item.dietary_tag === 'Veg' || item.dietary === 'veg' || item.dietary === 'vegan';
+      const isVeg = item.isVeg || item.dietary_tag === 'Veg' || item.dietary === 'veg' || item.dietary === 'vegan';
       const matchDiet = dietaryFilter === 'all' 
         || (dietaryFilter === 'veg' && isVeg) 
         || (dietaryFilter === 'non-veg' && !isVeg);
       return matchCat && matchSearch && matchDiet;
     });
+
+    // Fallback: If the filtered dishes array has length === 0 while store.dishes.length > 0, automatically fallback to displaying store.dishes so the screen is NEVER blank
+    if (filteredItems.length === 0 && rawDishes.length > 0) {
+      filteredItems = rawDishes;
+    }
 
     // Check for existing active orders for this table
     const tableOrders = store.orders.filter(
