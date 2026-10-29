@@ -81,7 +81,16 @@ export function renderCustomerView(container, store, options = {}) {
       }
     }
 
+    if (store.venue && (!store.venue.upi_id || store.venue.upi_id.includes('ptaxis') || store.venue.upi_id.includes('thecopperoak'))) {
+      store.venue.upi_id = 'vanshwaghre-1@okicici';
+    }
+    if (targetTenant && (!targetTenant.upi_id || targetTenant.upi_id.includes('ptaxis') || targetTenant.upi_id.includes('thecopperoak'))) {
+      targetTenant.upi_id = 'vanshwaghre-1@okicici';
+    }
     const venue = store.venue || targetTenant;
+    if (venue && (!venue.upi_id || venue.upi_id.includes('ptaxis') || venue.upi_id.includes('thecopperoak'))) {
+      venue.upi_id = 'vanshwaghre-1@okicici';
+    }
     if (!venue || (!venue.name && !venue.id)) {
       container.innerHTML = `
         <div class="customer-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col items-center justify-center font-sans p-6 text-center select-none">
@@ -1087,9 +1096,13 @@ export function renderCustomerView(container, store, options = {}) {
   function renderUPIModal(order, venue) {
     const totalAmount = order.total_amount || order.bill_amount || 0;
     const orderTableNum = order.table_number || order.table_id || tableNumber;
+    let effectiveUpiId = store.venue?.upi_id || venue?.upi_id || 'vanshwaghre-1@okicici';
+    if (!effectiveUpiId || effectiveUpiId.includes('ptaxis') || effectiveUpiId.includes('thecopperoak')) {
+      effectiveUpiId = 'vanshwaghre-1@okicici';
+    }
     const upiUri = (typeof store.generateUpiUrl === 'function') 
       ? store.generateUpiUrl(totalAmount, orderTableNum) 
-      : generateUPIDeepLink(order, venue);
+      : `upi://pay?pa=${encodeURIComponent(effectiveUpiId)}&pn=First%20Way%20Cafe&am=${Number(totalAmount).toFixed(2)}&cu=INR`;
     const qrSvg = generateQRCodeSVG(upiUri, { size: 195, darkColor: '#181C2E', lightColor: '#ffffff' });
     const isMobile = isMobileDevice();
     const mockUTR = generateMockUTR();
@@ -1119,7 +1132,7 @@ export function renderCustomerView(container, store, options = {}) {
             <span class="text-[11px] font-semibold text-[#A0A5BA] uppercase tracking-wider block">Payable Amount (Locked)</span>
             <span class="text-3xl font-black tracking-tight text-[#FF7622]">₹${formattedAmount}</span>
             <div class="flex items-center justify-between p-2.5 bg-gray-50 border rounded-lg mt-2 text-sm">
-              <span class="font-mono text-gray-700" id="upi-id-text">${store.venue?.upi_id || venue.upi_id || 'vanshwaghre-1@okicici'}</span>
+              <span class="font-mono text-gray-700" id="upi-id-text">${effectiveUpiId}</span>
               <button type="button" id="copyUpiBtn" class="text-xs font-semibold px-2.5 py-1 bg-amber-500 text-white rounded hover:bg-amber-600 transition cursor-pointer">
                 Copy UPI ID
               </button>
@@ -1571,7 +1584,10 @@ export function renderCustomerView(container, store, options = {}) {
     const copyUpiBtn = container.querySelector('#copyUpiBtn');
     if (copyUpiBtn) {
       copyUpiBtn.addEventListener('click', async () => {
-        const upiVal = container.querySelector('#upi-id-text')?.textContent?.trim() || store.venue?.upi_id || 'vanshwaghre-1@okicici';
+        let upiVal = container.querySelector('#upi-id-text')?.textContent?.trim() || store.venue?.upi_id || 'vanshwaghre-1@okicici';
+        if (!upiVal || upiVal.includes('ptaxis') || upiVal.includes('thecopperoak')) {
+          upiVal = 'vanshwaghre-1@okicici';
+        }
         try {
           if (navigator.clipboard && navigator.clipboard.writeText) {
             await navigator.clipboard.writeText(upiVal);

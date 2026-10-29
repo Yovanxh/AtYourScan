@@ -697,7 +697,35 @@ class ReactiveStore {
       } catch {}
     }
 
+    // Proactively purge any stale cached UPI IDs
+    try {
+      const v = this.load('ays_venue', null);
+      if (v && (!v.upi_id || v.upi_id.includes('ptaxis') || v.upi_id.includes('thecopperoak'))) {
+        v.upi_id = 'vanshwaghre-1@okicici';
+        this.save('ays_venue', v);
+      }
+      const cList = this.load('ays_cafes', null);
+      if (Array.isArray(cList)) {
+        let changed = false;
+        cList.forEach(c => {
+          if (!c.upi_id || c.upi_id.includes('ptaxis') || c.upi_id.includes('thecopperoak')) {
+            c.upi_id = 'vanshwaghre-1@okicici';
+            changed = true;
+          }
+          if (c.vpa_address && (c.vpa_address.includes('ptaxis') || c.vpa_address.includes('thecopperoak'))) {
+            c.vpa_address = 'vanshwaghre-1@okicici';
+            changed = true;
+          }
+        });
+        if (changed) this.save('ays_cafes', cList);
+      }
+    } catch {}
+
     this.venue = this.load('ays_venue', isTestEnv ? INITIAL_VENUE : null);
+    if (this.venue && (!this.venue.upi_id || this.venue.upi_id.includes('ptaxis') || this.venue.upi_id.includes('thecopperoak'))) {
+      this.venue.upi_id = 'vanshwaghre-1@okicici';
+      this.save('ays_venue', this.venue);
+    }
     if (!isTestEnv && this.venue && (this.venue.name?.includes('Copper') || this.venue.name === 'First Way Cafe' || this.venue.id === '550e8400-e29b-41d4-a716-446655440000')) {
       this.venue = null;
       try { localStorage.removeItem('ays_venue'); } catch {}
@@ -1367,6 +1395,19 @@ class ReactiveStore {
   async fetchCafesFromSupabase() {
     if (!supabase || typeof supabase.from !== 'function') return this.tenants || [];
     try {
+      // Query venues table to get authoritative upi_id
+      let venueUpiMap = {};
+      try {
+        const { data: vRows } = await supabase.from('venues').select('id, upi_id, name');
+        if (Array.isArray(vRows)) {
+          vRows.forEach(v => {
+            if (v.id && v.upi_id) venueUpiMap[v.id] = v.upi_id;
+          });
+        }
+      } catch (vErr) {
+        console.warn('[Sync] Note fetching venues for UPI mapping:', vErr.message);
+      }
+
       const { data: cafesData, error } = await supabase
         .from('cafes')
         .select('*')
@@ -1378,20 +1419,26 @@ class ReactiveStore {
       }
 
       if (Array.isArray(cafesData)) {
-        this.cafes = cafesData.map(c => ({
-          id: c.id,
-          cafe_id: c.id,
-          venue_id: c.id,
-          name: c.name,
-          slug: c.slug,
-          owner_name: c.owner_name || 'Cafe Owner',
-          owner_email: c.owner_email,
-          upi_id: c.vpa_address,
+        this.cafes = cafesData.map(c => {
+          let resolvedUpi = venueUpiMap[c.id] || c.upi_id || c.vpa_address || 'vanshwaghre-1@okicici';
+          if (!resolvedUpi || resolvedUpi.includes('ptaxis') || resolvedUpi.includes('thecopperoak')) {
+            resolvedUpi = 'vanshwaghre-1@okicici';
+          }
+          return {
+            id: c.id,
+            cafe_id: c.id,
+            venue_id: c.id,
+            name: c.name,
+            slug: c.slug,
+            owner_name: c.owner_name || 'Cafe Owner',
+            owner_email: c.owner_email,
+            upi_id: resolvedUpi,
           status: c.status || 'active',
           approval_status: c.approval_status || (c.status === 'pending' || c.status === 'pending_approval' ? 'pending' : 'approved'),
           tables_count: c.table_count || 12,
           created_at: c.created_at
-        }));
+        };
+      });
         if (isTestEnv) this.save('ays_cafes', this.cafes);
 
         this.tenants = this.cafes.map(c => ({
@@ -2165,6 +2212,18 @@ class ReactiveStore {
     const targetVenue = venueId || this.venue?.id || 'cafe-first-way-cafe-hotc';
 
     try {
+      // Hydrate official venue upi_id
+      try {
+        const { data: vRow } = await client.from('venues').select('*').eq('id', targetVenue).maybeSingle();
+        if (vRow && vRow.upi_id) {
+          if (!this.venue) {
+            this.venue = { id: targetVenue, name: vRow.name || 'First Way Cafe', upi_id: vRow.upi_id };
+          } else {
+            this.venue.upi_id = vRow.upi_id;
+          }
+          this.save('ays_venue', this.venue);
+        }
+      } catch {}
       // 1. Fetch Categories (with full table fallback)
       let { data: cats } = await client.from('categories').select('*').eq('venue_id', targetVenue).order('display_order', { ascending: true });
       if (!cats || cats.length === 0) {
@@ -3094,7 +3153,10 @@ class ReactiveStore {
   }
 
   generateUpiUrl(amount, tableNumber) {
-    const upiId = this.venue?.upi_id || 'vanshwaghre-1@okicici';
+    let upiId = this.venue?.upi_id || 'vanshwaghre-1@okicici';
+    if (!upiId || upiId.includes('ptaxis') || upiId.includes('thecopperoak')) {
+      upiId = 'vanshwaghre-1@okicici';
+    }
     const payeeName = this.venue?.name || 'First Way Cafe';
     
     // Format amount cleanly to 2 decimal places or integer
@@ -6010,7 +6072,10 @@ class ReactiveStore {
 
     const venueName = cafe?.name || 'Registered Cafe';
     const venueSlug = cafe?.slug || cafeId;
-    const upiId = cafe?.upi_id || '';
+    let upiId = cafe?.upi_id || 'vanshwaghre-1@okicici';
+    if (!upiId || upiId.includes('ptaxis') || upiId.includes('thecopperoak')) {
+      upiId = 'vanshwaghre-1@okicici';
+    }
 
     // 1. Set isolated Venue
     this.venue = {
