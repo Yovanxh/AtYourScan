@@ -40,9 +40,15 @@ CREATE TABLE IF NOT EXISTS public.orders (
     venue_id UUID NOT NULL REFERENCES public.venues(id) ON DELETE CASCADE,
     table_number INT NOT NULL,
     source TEXT NOT NULL CHECK (source IN ('QR_DINE_IN', 'ZOMATO', 'SWIGGY', 'TAKEAWAY', 'OTHER')),
-    status TEXT NOT NULL DEFAULT 'New' CHECK (status IN ('New', 'Preparing', 'Ready', 'Completed', 'Cancelled')),
+    status TEXT NOT NULL DEFAULT 'New' CHECK (status IN ('New', 'Preparing', 'Ready', 'Completed', 'Cancelled', 'CONFIRMED')),
     total_amount DECIMAL(10, 2) NOT NULL DEFAULT 0.00 CHECK (total_amount >= 0),
-    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+    bill_amount DECIMAL(10, 2),
+    utr_number TEXT,
+    payment_status TEXT NOT NULL DEFAULT 'PENDING' CHECK (payment_status IN ('PENDING', 'PAID', 'FAILED', 'REFUNDED')),
+    payment_method TEXT NOT NULL DEFAULT 'UPI',
+    is_locked BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
 );
 
 -- 6. Order Items Table
@@ -60,6 +66,19 @@ CREATE INDEX IF NOT EXISTS idx_tables_venue_id ON public.tables(venue_id);
 CREATE INDEX IF NOT EXISTS idx_menu_items_venue_id ON public.menu_items(venue_id);
 CREATE INDEX IF NOT EXISTS idx_orders_venue_id ON public.orders(venue_id);
 CREATE INDEX IF NOT EXISTS idx_orders_status ON public.orders(status);
+-- Idempotent column additions for existing deployments
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS bill_amount DECIMAL(10, 2);
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS utr_number TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'PENDING';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'UPI';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT false;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now());
+
+-- Partial unique index for non-null, non-staff-override UTRs
+CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_utr_number_unique 
+ON public.orders (utr_number) 
+WHERE utr_number IS NOT NULL AND utr_number NOT LIKE 'STAFF_OVERRIDE%';
+
 CREATE INDEX IF NOT EXISTS idx_order_items_order_id ON public.order_items(order_id);
 
 -- ==========================================================

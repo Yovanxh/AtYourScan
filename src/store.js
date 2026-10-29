@@ -1061,6 +1061,7 @@ class ReactiveStore {
 
     // Listen to real Supabase Realtime if online
     this.initSupabaseRealtime();
+    this.initRealtimeOrders();
     this.syncWithSupabase();
   }
 
@@ -1560,10 +1561,10 @@ class ReactiveStore {
     const resolvedTableNum = parseInt(table_number || table_id || 4, 10);
     const resolvedTableId = table_id || resolvedTableNum;
     const resolvedTableLabel = table_label || `Table ${resolvedTableNum}`;
-    const resolvedCafeId = cafe_id || venue_id || this.venue.id || 'AYS-VENUE-01';
+    const resolvedCafeId = cafe_id || venue_id || this.venue?.id || 'AYS-VENUE-01';
 
     const calcSubtotal = items.reduce((sum, it) => sum + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
-    const gstRate = this.venue.gst_rate || 0.05;
+    const gstRate = this.venue?.gst_rate || 0.05;
     const calcGst = Math.round(calcSubtotal * gstRate);
     const resolvedSubtotal = (subtotal !== null && subtotal !== undefined && !isNaN(subtotal)) ? Number(subtotal) : calcSubtotal;
     const resolvedTaxes = (taxes !== null && taxes !== undefined && !isNaN(taxes)) ? Number(taxes) : calcGst;
@@ -1585,6 +1586,11 @@ class ReactiveStore {
       subtotal: resolvedSubtotal,
       taxes: resolvedTaxes,
       total_amount: resolvedTotal,
+      bill_amount: resolvedTotal,
+      payment_status: 'PENDING',
+      payment_method: 'UPI',
+      is_locked: false,
+      utr_number: null,
       notes: notes || '',
       customer_name: customer_name || `Guest at ${resolvedTableLabel}`,
       items: items.map(it => ({
@@ -1613,6 +1619,11 @@ class ReactiveStore {
           source: newOrder.source,
           status: newOrder.status,
           total_amount: newOrder.total_amount,
+          bill_amount: newOrder.bill_amount,
+          payment_status: newOrder.payment_status,
+          payment_method: newOrder.payment_method,
+          is_locked: false,
+          utr_number: null,
           items: newOrder.items
         }]);
         if (q && typeof q.then === 'function') {
@@ -1666,7 +1677,7 @@ class ReactiveStore {
           type: 'ORDER_FIRED',
           order: newOrder,
           senderTabId: this.tabId,
-          venue_id: this.venue.id
+          venue_id: this.venue?.id || 'cafe-first-way-cafe-hotc'
         });
       } catch (e) {
         console.warn('BroadcastChannel postMessage error:', e);
@@ -1692,7 +1703,7 @@ class ReactiveStore {
     if (supabase && typeof supabase.from === 'function') {
       try {
         const orderInsertPayload = {
-          venue_id: this.venue.id,
+          venue_id: this.venue?.id || 'cafe-first-way-cafe-hotc',
           table_number: newOrder.table_number,
           source: newOrder.source,
           status: newOrder.status === 'in_kitchen' ? 'Preparing' : (newOrder.status || 'New'),
@@ -1868,6 +1879,10 @@ class ReactiveStore {
 
   // --- CART MANAGEMENT ---
   addToCart(item, quantity = 1, customization = '') {
+    if (this.isTableSessionLocked && this.isTableSessionLocked(this.cart.table_number)) {
+      console.warn('[Cart] Table order session is locked pending payment.');
+      return false;
+    }
     const existing = this.cart.items.find(
       i => i.item.id === item.id && (i.customization || '') === customization
     );
@@ -3034,6 +3049,275 @@ class ReactiveStore {
     this.playSound('bump');
     this.notify();
     return true;
+  }
+
+  isTableSessionLocked(tableNumber) {
+    const tNum = parseInt(tableNumber || this.cart?.table_number, 10);
+    if (!tNum) return false;
+    const lockedOrder = this.orders.find(o => 
+      (o.table_number === tNum || o.table_id === tNum) && 
+      o.is_locked === true && 
+      o.payment_status !== 'PAID' &&
+      o.status !== 'Completed' &&
+      o.status !== 'Cancelled'
+    );
+    return Boolean(lockedOrder);
+  }
+
+  lockOrderSession(orderId) {
+    if (!orderId) return null;
+    const order = this.orders.find(o => o.id === orderId || o.order_id === orderId);
+    if (order) {
+      order.is_locked = true;
+      this.save('ays_orders', this.orders);
+    }
+    if (order && order.table_number) {
+      const tbl = this.tables.find(t => t.table_number === order.table_number);
+      if (tbl) {
+        tbl.is_locked = true;
+        this.save('ays_tables', this.tables);
+      }
+    }
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    if (client && typeof client.from === 'function') {
+      try {
+        const p = client.from('orders').update({
+          is_locked: true,
+          updated_at: new Date().toISOString()
+        }).eq('id', orderId);
+        if (p && typeof p.then === 'function') p.then(() => {}, () => {});
+      } catch {}
+    }
+    this.notifyListeners?.({ type: 'ORDER_LOCKED', orderId });
+    this.notify?.({ type: 'ORDER_LOCKED', orderId });
+    return order;
+  }
+
+  generateUpiUrl(amount, tableNumber) {
+    const venueUpiId = this.venue?.upi_id || '9970561554@ptaxis';
+    const venueName = this.venue?.name || 'First Way Cafe';
+    const formattedAmount = Number(amount || 0).toFixed(2);
+    const tableRef = tableNumber ? `Table-${tableNumber}` : 'Dine-In';
+    return `upi://pay?pa=${encodeURIComponent(venueUpiId)}&pn=${encodeURIComponent(venueName)}&am=${formattedAmount}&cu=INR&tn=${encodeURIComponent(tableRef)}`;
+  }
+
+  async verifyOrderUtr(orderId, rawUtrNumber) {
+    const utr = String(rawUtrNumber || '').trim().replace(/\D/g, '');
+    if (!/^\d{12}$/.test(utr)) {
+      return { success: false, error: 'Invalid UTR format. Must be exactly 12 numeric digits.' };
+    }
+
+    if (!this._inFlightUtrs) this._inFlightUtrs = new Set();
+    if (this._inFlightUtrs.has(utr)) {
+      return { success: false, error: 'This transaction reference (UTR) is currently being processed.' };
+    }
+    this._inFlightUtrs.add(utr);
+
+    try {
+      const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+
+      if (client && typeof client.from === 'function') {
+        try {
+          const { data: duplicate } = await client
+            .from('orders')
+            .select('id, table_number')
+            .eq('utr_number', utr)
+            .neq('id', orderId)
+            .maybeSingle();
+
+          if (duplicate) {
+            return { success: false, error: 'This transaction reference (UTR) has already been submitted for another order.' };
+          }
+        } catch (err) {
+          if (err && String(err.message).includes('already been submitted')) {
+            return { success: false, error: err.message };
+          }
+        }
+      }
+
+      const localDuplicate = this.orders.find(o => o.utr_number === utr && o.id !== orderId);
+      if (localDuplicate) {
+        return { success: false, error: 'This transaction reference (UTR) has already been submitted for another order.' };
+      }
+
+      let updatedOrder = null;
+      if (client && typeof client.from === 'function') {
+        try {
+          const fullPayload = {
+            utr_number: utr,
+            payment_status: 'PAID',
+            status: 'CONFIRMED',
+            is_locked: true,
+            updated_at: new Date().toISOString()
+          };
+
+          let { data, error } = await client
+            .from('orders')
+            .update(fullPayload)
+            .eq('id', orderId)
+            .select()
+            .maybeSingle();
+
+          if (error) {
+            if (error.code === '23505' || String(error.message).includes('duplicate key') || String(error.message).includes('unique constraint')) {
+              return { success: false, error: 'This transaction reference (UTR) has already been submitted for another order.' };
+            }
+            // Fallback for schema variance on remote Supabase
+            const fallbackRes = await client
+              .from('orders')
+              .update({ status: 'CONFIRMED' })
+              .eq('id', orderId)
+              .select()
+              .maybeSingle();
+            if (fallbackRes.data) updatedOrder = fallbackRes.data;
+          } else if (data) {
+            updatedOrder = data;
+          }
+        } catch (e) {
+          console.warn('[Store] verifyOrderUtr remote sync note:', e.message);
+        }
+      }
+
+      let targetOrder = this.orders.find(o => o.id === orderId || o.order_id === orderId);
+      if (targetOrder) {
+        targetOrder.utr_number = utr;
+        targetOrder.payment_status = 'PAID';
+        targetOrder.status = 'CONFIRMED';
+        targetOrder.payment_method = 'UPI';
+        targetOrder.is_locked = true;
+        targetOrder.updated_at = new Date().toISOString();
+        if (updatedOrder) Object.assign(targetOrder, updatedOrder);
+      } else {
+        targetOrder = {
+          id: orderId,
+          utr_number: utr,
+          payment_status: 'PAID',
+          status: 'CONFIRMED',
+          payment_method: 'UPI',
+          is_locked: true,
+          updated_at: new Date().toISOString()
+        };
+        this.orders.unshift(targetOrder);
+      }
+
+      if (targetOrder && targetOrder.table_number) {
+        const tbl = this.tables.find(t => t.table_number === targetOrder.table_number);
+        if (tbl) {
+          tbl.status = 'Paid / Ready to Clear';
+          tbl.is_locked = true;
+          this.save('ays_tables', this.tables);
+        }
+      }
+
+      this.save('ays_orders', this.orders);
+      const finalOrder = targetOrder;
+
+      this.notifyListeners?.({ type: 'ORDER_PAID', order: finalOrder, utrNumber: utr });
+      this.notify?.({ type: 'ORDER_PAID', order: finalOrder, utrNumber: utr });
+
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('ORDER_PAID', { detail: { order: finalOrder, utrNumber: utr } }));
+      }
+
+      return { success: true, order: finalOrder, utr };
+    } catch (err) {
+      return { success: false, error: err.message || 'Payment verification failed.' };
+    } finally {
+      this._inFlightUtrs.delete(utr);
+    }
+  }
+
+  async manualCashPaymentOverride(orderId, staffId = 'STAFF') {
+    const overrideUtr = `STAFF_OVERRIDE_${Date.now()}_${Math.random().toString(36).substring(2, 6).toUpperCase()}`;
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+
+    if (client && typeof client.from === 'function') {
+      try {
+        await client
+          .from('orders')
+          .update({
+            utr_number: overrideUtr,
+            payment_status: 'PAID',
+            status: 'CONFIRMED',
+            payment_method: 'CASH',
+            is_locked: true,
+            updated_at: new Date().toISOString()
+          })
+          .eq('id', orderId);
+      } catch (e) {
+        console.warn('[Store] manualCashPaymentOverride Supabase warning:', e);
+      }
+    }
+
+    const targetOrder = this.orders.find(o => o.id === orderId || o.order_id === orderId);
+    if (targetOrder) {
+      targetOrder.utr_number = overrideUtr;
+      targetOrder.payment_status = 'PAID';
+      targetOrder.status = 'CONFIRMED';
+      targetOrder.payment_method = 'CASH';
+      targetOrder.is_locked = true;
+      targetOrder.updated_at = new Date().toISOString();
+    }
+
+    if (targetOrder && targetOrder.table_number) {
+      const tbl = this.tables.find(t => t.table_number === targetOrder.table_number);
+      if (tbl) {
+        tbl.status = 'Paid / Ready to Clear';
+        tbl.is_locked = true;
+        this.save('ays_tables', this.tables);
+      }
+    }
+
+    this.save('ays_orders', this.orders);
+    const finalOrder = targetOrder || { id: orderId, utr_number: overrideUtr, payment_status: 'PAID', status: 'CONFIRMED', payment_method: 'CASH' };
+    this.notifyListeners?.({ type: 'ORDER_PAID', order: finalOrder, isOverride: true });
+    this.notify?.({ type: 'ORDER_PAID', order: finalOrder, isOverride: true });
+    return { success: true, order: finalOrder };
+  }
+
+  initRealtimeOrders() {
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    if (!client || typeof client.channel !== 'function') return null;
+
+    if (this._ordersRealtimeChannel) {
+      return this._ordersRealtimeChannel;
+    }
+
+    try {
+      this._ordersRealtimeChannel = client
+        .channel('orders-realtime-sync')
+        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
+          const updated = payload.new;
+          if (!updated) return;
+
+          const existing = this.orders.find(o => o.id === updated.id);
+          if (existing) {
+            Object.assign(existing, updated);
+            this.save('ays_orders', this.orders);
+          }
+
+          if (updated.payment_status === 'PAID') {
+            this.notifyListeners?.({ type: 'ORDER_PAID', order: updated });
+            this.notify?.({ type: 'ORDER_PAID', order: updated });
+          }
+        })
+        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
+          const newOrder = payload.new;
+          if (!newOrder) return;
+          if (!this.orders.find(o => o.id === newOrder.id)) {
+            this.orders.unshift(newOrder);
+            this.save('ays_orders', this.orders);
+            this.notifyListeners?.({ type: 'ORDER_FIRED', order: newOrder });
+            this.notify?.({ type: 'ORDER_FIRED', order: newOrder });
+          }
+        })
+        .subscribe();
+
+      return this._ordersRealtimeChannel;
+    } catch (e) {
+      console.warn('[Store] Realtime channel init failed:', e);
+      return null;
+    }
   }
 
   /**

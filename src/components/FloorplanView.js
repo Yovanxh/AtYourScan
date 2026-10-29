@@ -73,6 +73,24 @@ export function renderFloorplanView(container, reactiveStore) {
   let activeIncomingTicket = null;
   let incomingToastOrder = null;
   let toastTimer = null;
+  let latestPaidAlert = null;
+
+  const onOrderPaid = (e) => {
+    try {
+      new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
+    } catch (_) {}
+    const detail = e.detail || {};
+    const tableNum = detail.order?.table_number || detail.order?.table_id || 'QR';
+    const amt = detail.order?.bill_amount || detail.order?.total_amount || '—';
+    const utr = detail.utrNumber || detail.order?.utr_number || 'VERIFIED';
+    latestPaidAlert = {
+      message: `Table ${tableNum} successfully verified! Total ₹${amt} received via UTR: ${utr}`
+    };
+    render();
+  };
+
+  window.removeEventListener('ORDER_PAID', onOrderPaid);
+  window.addEventListener('ORDER_PAID', onOrderPaid);
 
   function render() {
     if (reactiveStore && typeof reactiveStore.syncTableStates === 'function') {
@@ -106,6 +124,18 @@ export function renderFloorplanView(container, reactiveStore) {
     container.innerHTML = `
       <div class="floorplan-app floorplan-stub min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col font-sans select-none p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
         
+        ${latestPaidAlert ? `
+          <div class="bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-6 py-3 font-black text-sm flex items-center justify-between shadow-lg rounded-2xl animate-pulse">
+            <div class="flex items-center gap-2">
+              <span class="text-base">🔔</span>
+              <span>${latestPaidAlert.message}</span>
+            </div>
+            <button id="btn-dismiss-fp-alert" class="text-white/80 hover:text-white text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-xl cursor-pointer">
+              Dismiss
+            </button>
+          </div>
+        ` : ''}
+
         <!-- Header & Floor Metrics -->
         <div class="flex flex-wrap items-center justify-between gap-4 bg-white p-5 rounded-[28px] border border-slate-100 shadow-sm">
           <div class="flex items-center space-x-3.5">

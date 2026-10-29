@@ -7,6 +7,24 @@
 export function renderKDSView(container, store) {
   let filterSource = 'ALL'; // 'ALL' | 'QR_DINE_IN' | 'DELIVERY' | 'TAKEAWAY'
   let timerInterval = null;
+  let latestPaidAlert = null;
+
+  const onOrderPaid = (e) => {
+    try {
+      new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
+    } catch (_) {}
+    const detail = e.detail || {};
+    const tableNum = detail.order?.table_number || detail.order?.table_id || 'QR';
+    const amt = detail.order?.bill_amount || detail.order?.total_amount || '—';
+    const utr = detail.utrNumber || detail.order?.utr_number || 'VERIFIED';
+    latestPaidAlert = {
+      message: `Table ${tableNum} successfully verified! Total ₹${amt} received via UTR: ${utr}`
+    };
+    render();
+  };
+
+  window.removeEventListener('ORDER_PAID', onOrderPaid);
+  window.addEventListener('ORDER_PAID', onOrderPaid);
 
   function render() {
     const currentVenueId = store.venue?.id || store.venue?.cafe_id;
@@ -46,6 +64,17 @@ export function renderKDSView(container, store) {
     container.innerHTML = `
       <div class="kds-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col font-sans select-none">
         
+        ${latestPaidAlert ? `
+        <div class="bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-6 py-3 font-black text-sm flex items-center justify-between shadow-lg animate-pulse sticky top-0 z-40">
+          <div class="flex items-center gap-2">
+            <span class="text-base">🔔</span>
+            <span>${latestPaidAlert.message}</span>
+          </div>
+          <button id="btn-dismiss-paid-alert" class="text-white/80 hover:text-white text-xs bg-white/20 hover:bg-white/30 px-3 py-1 rounded-xl cursor-pointer">
+            Dismiss
+          </button>
+        </div>
+      ` : ''}
         <!-- KDS Control Bar Header (matching Running Orders.png) -->
         <header class="bg-white border-b border-slate-100 px-6 py-4 flex flex-wrap items-center justify-between gap-4 sticky top-0 z-30 shadow-xs">
           <div class="flex items-center space-x-4">
@@ -174,9 +203,16 @@ export function renderKDSView(container, store) {
             </div>
 
             <!-- Elapsed Timer -->
-            <span class="text-xs font-bold px-2.5 py-0.5 rounded-full border ${urgencyBadge}">
-              ⏱ ${timeStr}
-            </span>
+            <div class="flex items-center gap-1.5">
+              ${order.payment_status === 'PAID' ? `
+                <span class="text-[10px] font-black px-2 py-0.5 rounded-full bg-emerald-500 text-white shadow-xs">
+                  PAID • UTR: ${order.utr_number || 'VERIFIED'}
+                </span>
+              ` : ''}
+              <span class="text-xs font-bold px-2.5 py-0.5 rounded-full border ${urgencyBadge}">
+                ⏱ ${timeStr}
+              </span>
+            </div>
           </div>
 
           <div class="flex items-center justify-between mt-2.5">
@@ -241,6 +277,14 @@ export function renderKDSView(container, store) {
               <span>🎉 Clear & Fulfill</span>
             </button>
           `}
+          ${order.payment_status !== 'PAID' ? `
+            <button 
+              data-staff-override="${order.id}" 
+              class="col-span-2 py-1 text-[11px] font-bold text-slate-400 hover:text-emerald-700 underline text-center cursor-pointer"
+            >
+              Staff Cash Override (Bypass UTR)
+            </button>
+          ` : ''}
         </div>
 
       </div>
@@ -264,6 +308,25 @@ export function renderKDSView(container, store) {
         render();
       });
     }
+
+    // Dismiss paid alert
+    container.querySelector('#btn-dismiss-paid-alert')?.addEventListener('click', () => {
+      latestPaidAlert = null;
+      render();
+    });
+
+    // Staff cash override
+    container.querySelectorAll('[data-staff-override]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const orderId = e.currentTarget.dataset.staffOverride;
+        if (confirm('Authorize staff cash payment override for Order #' + orderId + '?')) {
+          if (typeof store.manualCashPaymentOverride === 'function') {
+            await store.manualCashPaymentOverride(orderId, 'STAFF_KITCHEN');
+          }
+          render();
+        }
+      });
+    });
 
     // Bump Order button
     container.querySelectorAll('[data-bump-order]').forEach(btn => {

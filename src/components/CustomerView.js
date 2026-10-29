@@ -1083,17 +1083,21 @@ export function renderCustomerView(container, store, options = {}) {
     `;
   }
 
-  // Render Instant UPI Modal with native mobile intent redirection and dynamic desktop vector QR code fallback
+  // Render Instant UPI Modal with dynamic QR code and 12-digit UTR Verification
   function renderUPIModal(order, venue) {
-    const upiUri = generateUPIDeepLink(order, venue);
+    const totalAmount = order.total_amount || order.bill_amount || 0;
+    const orderTableNum = order.table_number || order.table_id || tableNumber;
+    const upiUri = (typeof store.generateUpiUrl === 'function') 
+      ? store.generateUpiUrl(totalAmount, orderTableNum) 
+      : generateUPIDeepLink(order, venue);
     const qrSvg = generateQRCodeSVG(upiUri, { size: 195, darkColor: '#181C2E', lightColor: '#ffffff' });
     const isMobile = isMobileDevice();
     const mockUTR = generateMockUTR();
-    const formattedAmount = Number(order.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 });
+    const formattedAmount = Number(totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
     return `
-      <div class="fixed inset-0 z-50 bg-[#181C2E]/70 backdrop-blur-md flex items-center justify-center p-4">
-        <div class="bg-white rounded-[32px] max-w-sm w-full p-6 text-center space-y-4 shadow-2xl relative overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-200">
+      <div class="fixed inset-0 z-50 bg-[#181C2E]/70 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+        <div class="bg-white rounded-[32px] max-w-sm w-full p-6 text-center space-y-4 shadow-2xl relative overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-200 my-auto">
           
           <!-- Top glowing brand badge -->
           <div class="w-14 h-14 rounded-2xl bg-[#FFEBE4] text-[#FF7622] flex items-center justify-center mx-auto text-2xl font-black shadow-sm">
@@ -1102,21 +1106,21 @@ export function renderCustomerView(container, store, options = {}) {
 
           <div>
             <h3 class="text-lg font-black text-[#181C2E] flex items-center justify-center gap-1.5">
-              <span>UPI Instant Checkout</span>
+              <span>Dynamic UPI Verification</span>
               <span class="w-2 h-2 rounded-full bg-[#059C6A] animate-pulse"></span>
             </h3>
             <p class="text-xs text-[#646982] mt-0.5">
-              ${isMobile ? 'Tap below to launch your installed UPI app' : 'Scan with GPay, PhonePe, Paytm, or BHIM'}
+              Zero-fee instant settlement for Table ${orderTableNum}
             </p>
           </div>
 
-          <!-- Total Bill Amount Card -->
+          <!-- Total Bill Amount Card (Locked Session) -->
           <div class="py-3 px-4 bg-[#F7F8F9] border border-slate-100 rounded-2xl">
-            <span class="text-[11px] font-semibold text-[#A0A5BA] uppercase tracking-wider block">Payable Amount</span>
+            <span class="text-[11px] font-semibold text-[#A0A5BA] uppercase tracking-wider block">Payable Amount (Locked)</span>
             <span class="text-3xl font-black tracking-tight text-[#FF7622]">₹${formattedAmount}</span>
             <div class="text-[12px] text-[#646982] mt-1 flex items-center justify-center gap-1">
-              <span>Payee VPA:</span>
-              <span class="text-[#181C2E] font-bold">${venue.upi_id}</span>
+              <span>Payee UPI:</span>
+              <span class="text-[#181C2E] font-bold">${venue.upi_id || '9970561554@ptaxis'}</span>
             </div>
           </div>
 
@@ -1147,7 +1151,7 @@ export function renderCustomerView(container, store, options = {}) {
             </div>
           </div>
 
-          <!-- Dynamic Desktop Vector SVG QR Fallback (Always scannable from desktop or second device) -->
+          <!-- Dynamic Desktop Vector SVG QR Fallback -->
           <div class="space-y-2 pt-1 ${isMobile ? 'opacity-90' : 'block'}">
             <div class="bg-white p-3 rounded-2xl shadow-md border border-slate-100 inline-block mx-auto ring-4 ring-orange-50 transition-transform hover:scale-105">
               ${qrSvg}
@@ -1157,28 +1161,52 @@ export function renderCustomerView(container, store, options = {}) {
             </p>
           </div>
 
-          <!-- Settlement Verification Control -->
-          <div class="pt-2 border-t border-slate-100 space-y-2">
+          <!-- Real 12-Digit UTR Verification Form -->
+          <div id="utr-form-section" class="pt-2 border-t border-slate-100 space-y-2 text-left">
+            <label class="text-[11px] font-bold text-[#181C2E] uppercase tracking-wider block text-center">
+              Enter 12-digit UPI UTR / Ref Number
+            </label>
+            <div class="relative">
+              <input 
+                type="text" 
+                id="order-utr-input" 
+                maxlength="12" 
+                inputmode="numeric" 
+                placeholder="e.g. 429182740192" 
+                class="w-full text-center tracking-widest font-mono text-base font-bold py-3 px-3 rounded-2xl border border-slate-200 focus:outline-none focus:border-[#059C6A] focus:ring-2 focus:ring-emerald-100 transition-all text-[#181C2E] bg-[#F7F8F9]"
+              />
+            </div>
+            <div id="utr-error-banner" class="hidden text-[11px] text-rose-600 bg-rose-50 border border-rose-200 rounded-xl p-2.5 font-semibold text-center"></div>
+            
             <button 
-              id="btn-simulate-upi-settle" 
+              id="btn-submit-order-utr" 
               data-order-id="${order.id}"
-              data-table-number="${order.table_number}"
-              data-utr="${mockUTR}"
+              data-table-number="${orderTableNum}"
               class="w-full py-3.5 bg-gradient-to-r from-[#059C6A] to-[#10B981] hover:from-[#047851] hover:to-[#059C6A] text-white font-black text-xs rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
-              title="Verify Payment Settlement & Close Table Tab"
             >
-              <span>✓</span>
-              <span>Confirm Payment & Settle Bill</span>
+              <span id="btn-utr-text">✓ Verify & Complete Payment</span>
+              <span id="btn-utr-spinner" class="hidden animate-spin text-sm">⏳</span>
             </button>
-            <p class="text-[10px] text-[#A0A5BA]">
-              Instant settlement verification: clears active table tab on floorplan & generates invoice receipt.
+            <p class="text-[10px] text-[#A0A5BA] text-center">
+              Found on your UPI receipt (Google Pay, PhonePe, Paytm).
+            </p>
+          </div>
+
+          <!-- Animated Confirmation Card -->
+          <div id="utr-success-card" class="hidden bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center space-y-2 animate-in fade-in duration-300">
+            <div class="w-12 h-12 rounded-full bg-[#059C6A] text-white flex items-center justify-center text-xl font-bold mx-auto animate-bounce">
+              ✓
+            </div>
+            <h4 class="text-sm font-black text-[#059C6A]">Payment Received!</h4>
+            <p class="text-xs text-[#181C2E]">
+              Total ₹${formattedAmount} verified via UTR: <span class="font-mono font-bold text-emerald-800" id="confirmed-utr-display"></span>
             </p>
           </div>
 
           <!-- Secondary Dismiss / Manual Check Actions -->
           <div class="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-            <button id="btn-confirm-upi-paid" class="text-[#059C6A] hover:text-[#047851] font-bold text-xs transition-colors cursor-pointer">
-              ✓ Verify Tab
+            <button id="btn-simulate-upi-settle" data-order-id="${order.id}" data-table-number="${orderTableNum}" data-utr="${mockUTR}" class="text-[#059C6A] hover:text-[#047851] font-bold text-[11px] transition-colors cursor-pointer">
+              ⚡ Demo Auto-Fill UTR
             </button>
             <button id="btn-close-upi" class="text-[#646982] hover:text-[#181C2E] font-medium text-xs transition-colors cursor-pointer">
               Cancel / Close
@@ -1535,13 +1563,71 @@ export function renderCustomerView(container, store, options = {}) {
       render();
     };
 
+    const utrInput = container.querySelector('#order-utr-input');
     const simulateSettleBtn = container.querySelector('#btn-simulate-upi-settle');
     if (simulateSettleBtn) {
       simulateSettleBtn.addEventListener('click', (e) => {
+        const mockU = e.currentTarget.dataset.utr;
+        if (utrInput) {
+          utrInput.value = mockU;
+        }
+      });
+    }
+
+    const submitUtrBtn = container.querySelector('#btn-submit-order-utr');
+    if (submitUtrBtn) {
+      submitUtrBtn.addEventListener('click', async (e) => {
         const orderId = e.currentTarget.dataset.orderId;
         const tableNum = parseInt(e.currentTarget.dataset.tableNumber, 10);
-        const utr = e.currentTarget.dataset.utr;
-        handleSettlement(orderId, tableNum, utr);
+        const rawUtr = utrInput ? utrInput.value.trim() : '';
+        const sanitized = rawUtr.replace(/\D/g, '');
+        const errBanner = container.querySelector('#utr-error-banner');
+        const btnText = container.querySelector('#btn-utr-text');
+        const btnSpinner = container.querySelector('#btn-utr-spinner');
+
+        if (sanitized.length !== 12) {
+          if (errBanner) {
+            errBanner.textContent = 'Please enter a valid 12-digit numeric UTR/Ref number.';
+            errBanner.classList.remove('hidden');
+          }
+          return;
+        }
+
+        if (errBanner) errBanner.classList.add('hidden');
+        if (btnSpinner) btnSpinner.classList.remove('hidden');
+        if (btnText) btnText.textContent = 'Verifying with Bank...';
+
+        try {
+          const verifyRes = await store.verifyOrderUtr(orderId, sanitized);
+          if (!verifyRes.success) {
+            if (btnSpinner) btnSpinner.classList.add('hidden');
+            if (btnText) btnText.textContent = '✓ Verify & Complete Payment';
+            if (errBanner) {
+              errBanner.textContent = verifyRes.error || 'Verification failed. Please check UTR.';
+              errBanner.classList.remove('hidden');
+            }
+            return;
+          }
+
+          // Verification succeeded!
+          const formSection = container.querySelector('#utr-form-section');
+          const successCard = container.querySelector('#utr-success-card');
+          const utrDisplay = container.querySelector('#confirmed-utr-display');
+          if (formSection) formSection.classList.add('hidden');
+          if (utrDisplay) utrDisplay.textContent = sanitized;
+          if (successCard) successCard.classList.remove('hidden');
+
+          setTimeout(() => {
+            handleSettlement(orderId, tableNum, sanitized);
+          }, 1200);
+        } catch (err) {
+          if (btnSpinner) btnSpinner.classList.add('hidden');
+          if (btnText) btnText.textContent = '✓ Verify & Complete Payment';
+          if (errBanner) {
+            errBanner.textContent = err.message || 'System error verifying payment.';
+            errBanner.classList.remove('hidden');
+          }
+        }
       });
     }
 
@@ -1599,6 +1685,9 @@ export function renderCustomerView(container, store, options = {}) {
         const order = store.orders.find(o => o.id === orderId);
         if (order) {
           lastPlacedOrder = order;
+          if (typeof store.lockOrderSession === 'function') {
+            store.lockOrderSession(order.id);
+          }
           showUPIModal = true;
           render();
         }
