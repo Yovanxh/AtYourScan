@@ -41,7 +41,7 @@ export const INITIAL_VENUE = {
   name: isTestEnv ? 'First Way Cafe' : '',
   tagline: isTestEnv ? 'Artisanal Dining • Craft Brews • Woodfired Fare' : '',
   address: isTestEnv ? 'Indiranagar 12th Main, Bengaluru' : '',
-  upi_id: isTestEnv ? 'thecopperoak@icici' : '',
+  upi_id: 'vanshwaghre-1@okicici',
   gst_rate: 0.05, // 5% GST
   service_charge_rate: 0.07, // Optional 7% discretionary
   created_at: new Date().toISOString()
@@ -3094,7 +3094,7 @@ class ReactiveStore {
   }
 
   generateUpiUrl(amount, tableNumber) {
-    const upiId = this.venue?.upi_id || '9970561554@ptaxis';
+    const upiId = this.venue?.upi_id || 'vanshwaghre-1@okicici';
     const payeeName = this.venue?.name || 'First Way Cafe';
     
     // Format amount cleanly to 2 decimal places or integer

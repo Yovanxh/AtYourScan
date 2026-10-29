@@ -6,7 +6,7 @@
 
 /**
  * Validates Virtual Payment Address (VPA) / UPI ID format
- * Format: username@bankhandle (e.g. thecopperoak@icici, 9876543210@upi)
+ * Format: username@bankhandle (e.g. vanshwaghre-1@okicici, 9876543210@upi)
  * @param {string} vpa
  * @returns {boolean}
  */
@@ -62,7 +62,7 @@ export function buildUPIDeepLink({ upiId, payeeName = '', amount, currency = 'IN
  */
 export function generateUPIDeepLink(order, venue) {
   if (!order) throw new Error('Order is required for UPI generation');
-  const upiId = venue?.upi_id || '9970561554@ptaxis';
+  const upiId = venue?.upi_id || 'vanshwaghre-1@okicici';
   const payeeName = venue?.name || 'First Way Cafe';
   const amount = order.total_amount ?? 0;
 

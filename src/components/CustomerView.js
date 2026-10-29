@@ -60,7 +60,7 @@ export function renderCustomerView(container, store, options = {}) {
         id: urlCafe || 'venue-default-01',
         cafe_id: urlCafe || 'venue-default-01',
         name: fallbackName,
-        upi_id: 'thecopperoak@icici',
+        upi_id: 'vanshwaghre-1@okicici',
         status: 'active',
         currency: 'INR'
       };
@@ -1119,7 +1119,7 @@ export function renderCustomerView(container, store, options = {}) {
             <span class="text-[11px] font-semibold text-[#A0A5BA] uppercase tracking-wider block">Payable Amount (Locked)</span>
             <span class="text-3xl font-black tracking-tight text-[#FF7622]">₹${formattedAmount}</span>
             <div class="flex items-center justify-between p-2.5 bg-gray-50 border rounded-lg mt-2 text-sm">
-              <span class="font-mono text-gray-700" id="upi-id-text">${venue.upi_id || '9970561554@ptaxis'}</span>
+              <span class="font-mono text-gray-700" id="upi-id-text">${store.venue?.upi_id || venue.upi_id || 'vanshwaghre-1@okicici'}</span>
               <button type="button" id="copyUpiBtn" class="text-xs font-semibold px-2.5 py-1 bg-amber-500 text-white rounded hover:bg-amber-600 transition cursor-pointer">
                 Copy UPI ID
               </button>
@@ -1559,7 +1559,7 @@ export function renderCustomerView(container, store, options = {}) {
         utr: ref,
         paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         items: order?.items || [],
-        vpa: store.venue.upi_id,
+        vpa: store.venue?.upi_id || 'vanshwaghre-1@okicici',
         venueName: store.venue.name
       };
 
@@ -1571,7 +1571,7 @@ export function renderCustomerView(container, store, options = {}) {
     const copyUpiBtn = container.querySelector('#copyUpiBtn');
     if (copyUpiBtn) {
       copyUpiBtn.addEventListener('click', async () => {
-        const upiVal = container.querySelector('#upi-id-text')?.textContent?.trim() || store.venue?.upi_id || '9970561554@ptaxis';
+        const upiVal = container.querySelector('#upi-id-text')?.textContent?.trim() || store.venue?.upi_id || 'vanshwaghre-1@okicici';
         try {
           if (navigator.clipboard && navigator.clipboard.writeText) {
             await navigator.clipboard.writeText(upiVal);

@@ -58,7 +58,7 @@ export const DEFAULT_ONBOARDING_STATE = {
   restaurantId: 'REST-BLR-001',
   tagline: 'Artisanal Dining • Craft Brews • Woodfired Fare',
   address: 'Indiranagar 12th Main, Bengaluru',
-  upiId: 'thecopperoak@icici',
+  upiId: 'vanshwaghre-1@okicici',
   currency: 'INR',
   gstRate: '5.0',
   serviceChargeRate: '7.0',
@@ -560,7 +560,7 @@ export function renderOnboardingModal(container, store, options = {}) {
                       type="text" 
                       id="input-venue-upi" 
                       value="${escapeHtml(formData.upiId)}" 
-                      placeholder="e.g. thecopperoak@icici"
+                      placeholder="e.g. vanshwaghre-1@okicici"
                       class="w-full bg-[#111116] border ${validationErrors.upiId ? 'border-red-500' : 'border-white/10'} rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 font-mono placeholder-zinc-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all"
                     />
                     ${validationErrors.upiId ? `<p class="text-[10px] text-red-400 font-mono mt-1">${validationErrors.upiId}</p>` : ''}
