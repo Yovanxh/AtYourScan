@@ -62,18 +62,15 @@ export function buildUPIDeepLink({ upiId, payeeName = '', amount, currency = 'IN
  */
 export function generateUPIDeepLink(order, venue) {
   if (!order) throw new Error('Order is required for UPI generation');
-  const upiId = venue?.upi_id || 'thecopperoak@icici';
+  const upiId = venue?.upi_id || '9970561554@ptaxis';
   const payeeName = venue?.name || 'First Way Cafe';
   const amount = order.total_amount ?? 0;
-  const tablePart = order.table_number ? ` Table ${order.table_number}` : '';
-  const transactionNote = `Order ${order.id}${tablePart}`;
 
   return buildUPIDeepLink({
     upiId,
     payeeName,
     amount,
-    currency: 'INR',
-    transactionNote
+    currency: 'INR'
   });
 }
 

@@ -3094,11 +3094,14 @@ class ReactiveStore {
   }
 
   generateUpiUrl(amount, tableNumber) {
-    const venueUpiId = this.venue?.upi_id || '9970561554@ptaxis';
-    const venueName = this.venue?.name || 'First Way Cafe';
-    const formattedAmount = Number(amount || 0).toFixed(2);
-    const tableRef = tableNumber ? `Table-${tableNumber}` : 'Dine-In';
-    return `upi://pay?pa=${encodeURIComponent(venueUpiId)}&pn=${encodeURIComponent(venueName)}&am=${formattedAmount}&cu=INR&tn=${encodeURIComponent(tableRef)}`;
+    const upiId = this.venue?.upi_id || '9970561554@ptaxis';
+    const payeeName = this.venue?.name || 'First Way Cafe';
+    
+    // Format amount cleanly to 2 decimal places or integer
+    const cleanAmount = Number(amount || 0).toFixed(2);
+
+    // Return a clean P2P intent URI without `tn=` parameter
+    return `upi://pay?pa=${encodeURIComponent(upiId)}&pn=${encodeURIComponent(payeeName)}&am=${cleanAmount}&cu=INR`;
   }
 
   async verifyOrderUtr(orderId, rawUtrNumber) {

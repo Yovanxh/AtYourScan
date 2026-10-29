@@ -1118,9 +1118,11 @@ export function renderCustomerView(container, store, options = {}) {
           <div class="py-3 px-4 bg-[#F7F8F9] border border-slate-100 rounded-2xl">
             <span class="text-[11px] font-semibold text-[#A0A5BA] uppercase tracking-wider block">Payable Amount (Locked)</span>
             <span class="text-3xl font-black tracking-tight text-[#FF7622]">₹${formattedAmount}</span>
-            <div class="text-[12px] text-[#646982] mt-1 flex items-center justify-center gap-1">
-              <span>Payee UPI:</span>
-              <span class="text-[#181C2E] font-bold">${venue.upi_id || '9970561554@ptaxis'}</span>
+            <div class="flex items-center justify-between p-2.5 bg-gray-50 border rounded-lg mt-2 text-sm">
+              <span class="font-mono text-gray-700" id="upi-id-text">${venue.upi_id || '9970561554@ptaxis'}</span>
+              <button type="button" id="copyUpiBtn" class="text-xs font-semibold px-2.5 py-1 bg-amber-500 text-white rounded hover:bg-amber-600 transition cursor-pointer">
+                Copy UPI ID
+              </button>
             </div>
           </div>
 
@@ -1129,9 +1131,11 @@ export function renderCustomerView(container, store, options = {}) {
             <a 
               href="${upiUri}" 
               id="btn-direct-upi-launch"
+              target="_blank"
+              rel="noopener noreferrer"
               class="w-full py-3.5 bg-[#FF7622] hover:bg-[#F15B00] text-white font-extrabold text-sm rounded-2xl shadow-lg shadow-[#FF7622]/25 flex items-center justify-center gap-2 active:scale-95 transition-all uppercase tracking-wider cursor-pointer"
             >
-              <span>⚡ Open Installed UPI App</span>
+              <span>⚡ Pay ₹${formattedAmount} via UPI App</span>
             </a>
 
             <!-- App-Specific 1-Tap Quick Links -->
@@ -1159,6 +1163,7 @@ export function renderCustomerView(container, store, options = {}) {
             <p class="text-[11px] text-[#646982] font-medium">
               ${isMobile ? 'Or scan QR code from a second device' : 'Point camera to scan with any UPI app on your phone'}
             </p>
+            <p class="text-[11px] text-gray-500 mt-2 text-center">Note: Avoid paying from an account registered with the same mobile number as the cafe UPI ID.</p>
           </div>
 
           <!-- Real 12-Digit UTR Verification Form -->
@@ -1562,6 +1567,35 @@ export function renderCustomerView(container, store, options = {}) {
       activeTab = 'receipt';
       render();
     };
+
+    const copyUpiBtn = container.querySelector('#copyUpiBtn');
+    if (copyUpiBtn) {
+      copyUpiBtn.addEventListener('click', async () => {
+        const upiVal = container.querySelector('#upi-id-text')?.textContent?.trim() || store.venue?.upi_id || '9970561554@ptaxis';
+        try {
+          if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(upiVal);
+          } else {
+            const ta = document.createElement('textarea');
+            ta.value = upiVal;
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+          }
+          copyUpiBtn.textContent = 'Copied!';
+          copyUpiBtn.classList.remove('bg-amber-500', 'hover:bg-amber-600');
+          copyUpiBtn.classList.add('bg-emerald-600', 'hover:bg-emerald-700');
+          setTimeout(() => {
+            copyUpiBtn.textContent = 'Copy UPI ID';
+            copyUpiBtn.classList.remove('bg-emerald-600', 'hover:bg-emerald-700');
+            copyUpiBtn.classList.add('bg-amber-500', 'hover:bg-amber-600');
+          }, 2000);
+        } catch (err) {
+          console.warn('Failed to copy UPI ID:', err);
+        }
+      });
+    }
 
     const utrInput = container.querySelector('#order-utr-input');
     const simulateSettleBtn = container.querySelector('#btn-simulate-upi-settle');
