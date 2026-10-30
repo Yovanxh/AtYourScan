@@ -1243,7 +1243,17 @@ class ReactiveStore {
 
   updateOrderStatus(orderId, nextStatus) {
     const order = this.orders.find(o => o.id === orderId);
-    if (!order) return;
+    if (!order) return { success: false, error: 'Order not found' };
+
+    // Strict Enforcement: In Instant Payment, order cannot be prepared until payment is verified by admin
+    const isInstantPay = (order.payment_method === 'UPI' || !order.is_pay_later);
+    const isUnverified = (order.verification_status !== 'APPROVED' || order.payment_status !== 'PAID');
+    if (isInstantPay && isUnverified) {
+      if (nextStatus === 'Preparing' || nextStatus === 'in_kitchen' || nextStatus === 'Ready') {
+        console.warn(`[Store] Blocked advancing unverified Instant Payment order #${orderId} to '${nextStatus}'. Admin payment verification required.`);
+        return { success: false, error: 'Instant Payment must be verified and approved by admin before preparation can begin.' };
+      }
+    }
 
     order.status = nextStatus;
     this.save('ays_orders', this.orders);

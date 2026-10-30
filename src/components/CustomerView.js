@@ -988,15 +988,20 @@ export function renderCustomerView(container, store, options = {}) {
         </div>
 
         ${orders.map(order => {
-          const isServed = order.status === 'Ready' || order.status === 'Served' || order.status === 'Completed';
-          const isPreparing = order.status === 'in_kitchen' || order.status === 'Preparing';
-          const isReceived = !isServed && !isPreparing;
+          const isInstantUnverified = (order.payment_method === 'UPI' || !order.is_pay_later) && (order.verification_status !== 'APPROVED' || order.payment_status !== 'PAID');
+          const isServed = !isInstantUnverified && (order.status === 'Ready' || order.status === 'Served' || order.status === 'Completed');
+          const isPreparing = !isInstantUnverified && (order.status === 'in_kitchen' || order.status === 'Preparing');
+          const isReceived = !isInstantUnverified && !isServed && !isPreparing;
 
           let statusPillClass = 'bg-amber-100 text-amber-900 border border-amber-300';
           let statusPillText = '🟡 Order Received';
           let currentStepIdx = 0;
 
-          if (isServed) {
+          if (isInstantUnverified) {
+            statusPillClass = 'bg-amber-50 text-amber-800 border-2 border-amber-300 font-bold';
+            statusPillText = '⏳ Awaiting Payment Verification';
+            currentStepIdx = 0;
+          } else if (isServed) {
             statusPillClass = 'bg-emerald-100 text-emerald-900 border border-emerald-300 font-bold';
             statusPillText = '🟢 Served';
             currentStepIdx = 2;
@@ -1006,7 +1011,11 @@ export function renderCustomerView(container, store, options = {}) {
             currentStepIdx = 1;
           }
 
-          const steps = [
+          const steps = isInstantUnverified ? [
+            { label: 'Payment Verifying', icon: '⏳' },
+            { label: 'Kitchen Preparation', icon: '🔒' },
+            { label: 'Served', icon: '🟢' }
+          ] : [
             { label: 'Order Received', icon: '🟡' },
             { label: 'In Kitchen (Preparing)', icon: '🔥' },
             { label: 'Served', icon: '🟢' }
@@ -1031,6 +1040,16 @@ export function renderCustomerView(container, store, options = {}) {
                 </span>
               </div>
 
+              ${isInstantUnverified ? `
+                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-3 text-xs text-amber-800 flex items-start gap-2.5">
+                  <span class="text-base leading-none">⏳</span>
+                  <div>
+                    <span class="font-bold block">Payment Verification in Progress</span>
+                    <span class="text-[11px] leading-relaxed">Counter staff is confirming your transaction. Preparation in the kitchen will begin immediately once verified.</span>
+                  </div>
+                </div>
+              ` : ''}
+
               <!-- Step Progress Bar -->
               <div class="relative flex items-center justify-between px-3 pt-1">
                 <div class="absolute left-7 right-7 top-4 h-1 bg-[#F0F5FA] -z-0 rounded-full"></div>
@@ -1043,14 +1062,14 @@ export function renderCustomerView(container, store, options = {}) {
                     <div class="flex flex-col items-center z-10">
                       <div class="w-7 h-7 rounded-full flex items-center justify-center text-[11px] font-bold transition-all ${
                         isCurrent 
-                          ? 'bg-[#FF7622] text-white ring-4 ring-[#FFEBE4]' 
+                          ? (isInstantUnverified ? 'bg-amber-500 text-white ring-4 ring-amber-100' : 'bg-[#FF7622] text-white ring-4 ring-[#FFEBE4]')
                           : isDone 
                           ? 'bg-[#181C2E] text-white' 
                           : 'bg-[#ECF0F4] text-[#A0A5BA]'
                       }">
-                        ${isDone && !isCurrent ? '✓' : i + 1}
+                        ${isInstantUnverified && i === 0 ? '⏳' : (isDone && !isCurrent ? '✓' : i + 1)}
                       </div>
-                      <span class="text-[10px] mt-1.5 font-bold ${isCurrent ? 'text-[#FF7622]' : 'text-[#A0A5BA]'}">
+                      <span class="text-[10px] mt-1.5 font-bold ${isCurrent ? (isInstantUnverified ? 'text-amber-800' : 'text-[#FF7622]') : 'text-[#A0A5BA]'}">
                         ${st.label}
                       </span>
                     </div>
@@ -1060,7 +1079,9 @@ export function renderCustomerView(container, store, options = {}) {
 
               <!-- Items in this ticket -->
               <div class="bg-[#F7F8F9] rounded-2xl p-3.5 divide-y divide-slate-100 text-xs">
-                <span class="text-[10px] text-[#A0A5BA] uppercase font-bold tracking-wider block pb-1.5">Currently Cooking</span>
+                <span class="text-[10px] text-[#A0A5BA] uppercase font-bold tracking-wider block pb-1.5">
+                  ${isInstantUnverified ? 'Items in Order (Awaiting Payment Verification)' : 'Currently Cooking'}
+                </span>
                 ${(order.items || []).map(it => `
                   <div class="py-2 flex justify-between items-start text-[#181C2E]">
                     <div>

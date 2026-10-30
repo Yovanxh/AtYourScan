@@ -38,13 +38,18 @@ export function renderKDSView(container, store) {
   function render() {
     const currentVenueId = store.venue?.id || store.venue?.cafe_id;
     const pendingUtrOrders = (store.orders || []).filter(o => {
-      return (o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL') && o.status !== 'Completed' && o.status !== 'Cancelled';
+      const isUnverifiedInstant = (o.payment_method === 'UPI' || !o.is_pay_later) && o.verification_status !== 'APPROVED';
+      const isPending = o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || o.verification_status === 'PENDING_APPROVAL' || o.status === 'AWAITING_VERIFICATION';
+      return isUnverifiedInstant && isPending && o.status !== 'Completed' && o.status !== 'Cancelled';
     });
 
     const activeOrders = (store.orders || []).filter(o => {
       if (o.status === 'Completed' || o.status === 'Cancelled') return false;
-      // DO NOT route to kitchen display while awaiting admin UTR verification
-      if (o.status === 'AWAITING_VERIFICATION' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || o.payment_status === 'UTR_SUBMITTED') {
+      // Instant payment tickets must NEVER enter kitchen display until payment is verified by admin
+      if ((o.payment_method === 'UPI' || !o.is_pay_later) && (o.verification_status !== 'APPROVED' || o.payment_status !== 'PAID')) {
+        return false;
+      }
+      if (o.status === 'AWAITING_VERIFICATION' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || o.verification_status === 'PENDING_APPROVAL' || o.payment_status === 'UTR_SUBMITTED') {
         return false;
       }
       // Filter out phantom/dummy tickets with empty items
