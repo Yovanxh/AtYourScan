@@ -13,6 +13,27 @@ if (typeof window !== 'undefined') {
   if (window.store) {
     window.store.supabase = supabase;
   }
+  try {
+    if (!localStorage.getItem('ays_clean_v6_done')) {
+      const keysToPurge = [
+        'ays_orders',
+        'ays_orders_demo',
+        'ays_orders_cafe-first-way-cafe-hotc',
+        'ays_tables_demo',
+        'ays_menu_demo',
+        'ays_categories_demo',
+        'ays_dishes_demo',
+        'ays_cached_staff_demo',
+        'ays_table_session',
+        'ays_table_session_table',
+        'ays_cart',
+        'ays_dishes_cache',
+        'ays_categories_cache'
+      ];
+      keysToPurge.forEach(k => localStorage.removeItem(k));
+      localStorage.setItem('ays_clean_v6_done', 'true');
+    }
+  } catch {}
 }
 import { renderCustomerView } from './components/CustomerView.js';
 import { renderSalesAnalyticsView } from './components/SalesAnalyticsView.js';

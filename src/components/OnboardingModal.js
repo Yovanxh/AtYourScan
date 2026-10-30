@@ -51,36 +51,32 @@ export const STATION_TYPES = [
   { id: 'KDS_STATION', label: 'Kitchen Bump Display (KDS)' }
 ];
 
-// Default Realistic Pre-Populated State (for instantaneous 1-click test fill)
+// Default Clean Initial State
 export const DEFAULT_ONBOARDING_STATE = {
   // Step 1: Venue Setup
-  restaurantName: 'First Way Cafe',
-  restaurantId: 'REST-BLR-001',
-  tagline: 'Artisanal Dining • Craft Brews • Woodfired Fare',
-  address: 'Indiranagar 12th Main, Bengaluru',
+  restaurantName: '',
+  restaurantId: '',
+  tagline: '',
+  address: '',
   upiId: 'vanshwaghre-1@okicici',
   currency: 'INR',
   gstRate: '5.0',
   serviceChargeRate: '7.0',
 
   // Step 2: Master Admin Registration
-  adminName: 'Dev Anand',
-  adminEmail: 'admin@copperoak.com',
-  adminPassword: 'AdminSecurePass2026!',
-  adminConfirmPassword: 'AdminSecurePass2026!',
-  adminPin: '1234',
-  adminConfirmPin: '1234',
+  adminName: '',
+  adminEmail: '',
+  adminPassword: '',
+  adminConfirmPassword: '',
+  adminPin: '',
+  adminConfirmPin: '',
 
   // Step 3: Staff Roster
-  staffRoster: [
-    { id: 'staff-cashier-01', role: ROLES.CASHIER, name: 'Rohan Verma', pin: '1111' },
-    { id: 'staff-server-01', role: ROLES.SERVER, name: 'Priya Sharma', pin: '2222' },
-    { id: 'staff-bar-01', role: ROLES.BARTENDER, name: 'Alex D’Souza', pin: '3333' }
-  ],
+  staffRoster: [],
 
   // Step 4: Primary Terminal Setup
   terminalName: 'Front Billing Counter POS #1',
-  terminalSin: 'SIN-POS-01',
+  terminalSin: '',
   terminalType: 'BILLING_POS',
   autoPairDevice: true,
   autoLoginAdmin: true
@@ -374,12 +370,7 @@ export function renderOnboardingModal(container, store, options = {}) {
               </div>
             </div>
 
-            <!-- Quick Auto-Fill Demo Preset Button -->
             <div class="flex items-center gap-2">
-              <button id="btn-quick-fill-presets" class="text-[11px] font-mono px-2.5 py-1 rounded-full bg-amber-500/10 hover:bg-amber-500/20 text-amber-300 border border-amber-500/30 flex items-center gap-1.5 transition-all" title="Pre-fill standard restaurant configuration">
-                <span class="w-3.5 h-3.5">${ICONS.sparkles}</span>
-                <span>Auto-Fill Defaults</span>
-              </button>
               ${onCancel ? `
                 <button id="btn-close-onboarding" class="p-1.5 rounded-xl text-zinc-400 hover:text-zinc-200 hover:bg-white/[0.06] transition-all" title="Cancel Setup">
                   <span class="w-4 h-4">${ICONS.x}</span>
@@ -1002,17 +993,6 @@ export function renderOnboardingModal(container, store, options = {}) {
           }
         }
       });
-    });
-
-    // Preset Demo Auto-fill button
-    container.querySelector('#btn-quick-fill-presets')?.addEventListener('click', () => {
-      formData = {
-        ...DEFAULT_ONBOARDING_STATE,
-        staffRoster: JSON.parse(JSON.stringify(DEFAULT_ONBOARDING_STATE.staffRoster))
-      };
-      validationErrors = {};
-      errorMessage = '';
-      render();
     });
 
     // Close button

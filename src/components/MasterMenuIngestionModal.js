@@ -7,7 +7,7 @@
  * into the catalog and Supabase.
  */
 
-import { parseMenuPrompt, SAMPLE_MASTER_MENU_PROMPT } from '../utils/menuTextParser.js';
+import { parseMenuPrompt } from '../utils/menuTextParser.js';
 import { renderMasterAccountModal } from './MasterAccountModal.js';
 
 export function renderMasterMenuIngestionModal(container, store, options = {}) {
@@ -122,16 +122,6 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
                   </label>
                   
                     <div class="flex items-center gap-2">
-                      <button 
-                        id="btn-load-sample" 
-                        type="button"
-                        class="px-3 py-1 rounded-xl text-[11px] font-bold bg-amber-50 hover:bg-amber-100 text-amber-700 border border-amber-200 transition-all flex items-center gap-1 cursor-pointer"
-                        title="Load the 15 categories and 80+ vegetarian dishes sample prompt"
-                      >
-                        <span>⚡</span>
-                        <span>Load Sample Menu Prompt</span>
-                      </button>
-
                       <button 
                         id="btn-clear-text" 
                         type="button"
@@ -360,15 +350,6 @@ export function renderMasterMenuIngestionModal(container, store, options = {}) {
           e.preventDefault();
           btnAnalyze?.click();
         }
-      });
-    }
-
-    const btnLoadSample = container.querySelector('#btn-load-sample');
-    if (btnLoadSample) {
-      btnLoadSample.addEventListener('click', () => {
-        inputText = SAMPLE_MASTER_MENU_PROMPT;
-        errorMessage = '';
-        render();
       });
     }
 

@@ -767,39 +767,6 @@ export function renderMenuView(container, store, options = {}) {
       };
     }
 
-    // Action: Purge Mock Catalog
-    const purgeBtn = container.querySelector('#btn-purge-catalog');
-    if (purgeBtn) {
-      purgeBtn.onclick = async () => {
-        if (!store.canMutateCatalog()) {
-          const override = await requestManagerOverride(store, {
-            actionType: 'CATALOG_PURGE',
-            actionLabel: 'Purge Mock Catalog',
-            targetItem: 'Full Menu Catalog'
-          });
-          if (!override.approved) {
-            statusBanner = { type: 'error', text: '403 Forbidden: Admin PIN required to purge catalog.' };
-            render();
-            return;
-          }
-        }
-
-        store.purgeMockCatalog();
-        statusBanner = { type: 'success', text: 'All mock dishes, categories, and inventory items purged successfully.' };
-        render();
-      };
-    }
-
-    // Action: Seed Demo Menu
-    const seedBtn = container.querySelector('#btn-seed-catalog');
-    if (seedBtn) {
-      seedBtn.onclick = () => {
-        store.seedDemoCatalog();
-        statusBanner = { type: 'success', text: 'Artisanal demo catalog and BOM recipe mappings restored.' };
-        render();
-      };
-    }
-
     // Action: Add Category Modal
     const addCatBtn = container.querySelector('#btn-add-category');
     const catTabAddBtn = container.querySelector('#cat-tab-add-btn');

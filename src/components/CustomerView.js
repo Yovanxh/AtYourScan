@@ -4,7 +4,7 @@
  */
 
 import { generateQRCodeSVG } from '../qrGenerator.js';
-import { buildUPIDeepLink, generateUPIDeepLink, isMobileDevice, generateMockUTR } from '../utils/payment.js';
+import { buildUPIDeepLink, generateUPIDeepLink, isMobileDevice } from '../utils/payment.js';
 
 export function renderCustomerView(container, store, options = {}) {
   const optionsObj = (typeof options === 'number') ? { tableNumber: options } : (options || {});
@@ -1124,7 +1124,6 @@ export function renderCustomerView(container, store, options = {}) {
       : `upi://pay?pa=${encodeURIComponent(effectiveUpiId)}&pn=First%20Way%20Cafe&am=${Number(totalAmount).toFixed(2)}&cu=INR`;
     const qrSvg = generateQRCodeSVG(upiUri, { size: 195, darkColor: '#181C2E', lightColor: '#ffffff' });
     const isMobile = isMobileDevice();
-    const mockUTR = generateMockUTR();
     const formattedAmount = Number(totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
     return `
@@ -1256,10 +1255,7 @@ export function renderCustomerView(container, store, options = {}) {
           </div>
 
           <!-- Secondary Dismiss / Manual Check Actions -->
-          <div class="flex items-center justify-between text-xs pt-2 border-t border-slate-100">
-            <button id="btn-simulate-upi-settle" data-order-id="${order.id}" data-table-number="${orderTableNum}" data-utr="${mockUTR}" class="text-[#059C6A] hover:text-[#047851] font-bold text-[11px] transition-colors cursor-pointer">
-              ⚡ Demo Auto-Fill UTR
-            </button>
+          <div class="flex items-center justify-end text-xs pt-2 border-t border-slate-100">
             <button id="btn-close-upi" class="text-[#646982] hover:text-[#181C2E] font-medium text-xs transition-colors cursor-pointer">
               Cancel / Close
             </button>
@@ -1603,11 +1599,11 @@ export function renderCustomerView(container, store, options = {}) {
       btn.addEventListener('click', onBackToMenu);
     });
 
-    // UPI Modal Actions & Settlement Simulation
+    // UPI Modal Actions & Settlement
     const handleSettlement = (orderId, tableNum, utr) => {
       const order = store.orders.find(o => o.id === orderId) || lastPlacedOrder;
       const tNum = tableNum || order?.table_number || store.cart.table_number;
-      const ref = utr || generateMockUTR();
+      const ref = utr || '';
 
       store.settleTable(tNum, 'UPI', ref);
 
@@ -1619,7 +1615,7 @@ export function renderCustomerView(container, store, options = {}) {
         paidAt: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' }),
         items: order?.items || [],
         vpa: store.venue?.upi_id || 'vanshwaghre-1@okicici',
-        venueName: store.venue.name
+        venueName: store.venue?.name || 'Restaurant'
       };
 
       showUPIModal = false;
@@ -1660,15 +1656,6 @@ export function renderCustomerView(container, store, options = {}) {
     }
 
     const utrInput = container.querySelector('#order-utr-input');
-    const simulateSettleBtn = container.querySelector('#btn-simulate-upi-settle');
-    if (simulateSettleBtn) {
-      simulateSettleBtn.addEventListener('click', (e) => {
-        const mockU = e.currentTarget.dataset.utr;
-        if (utrInput) {
-          utrInput.value = mockU;
-        }
-      });
-    }
 
     const submitUtrBtn = container.querySelector('#btn-submit-order-utr');
     if (submitUtrBtn) {

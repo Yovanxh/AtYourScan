@@ -95,13 +95,3 @@ export function isMobileDevice() {
 
   return isMobileUA || (isMobileWidth && hasTouch);
 }
-
-/**
- * Generate a realistic NPCI Unique Transaction Reference (UTR) for simulation
- * @returns {string} e.g. AYS-UPI-839201948271
- */
-export function generateMockUTR() {
-  const dateStr = Date.now().toString().slice(-6);
-  const randomSuffix = Math.floor(100000 + Math.random() * 900000);
-  return `AYS-UPI-${dateStr}${randomSuffix}`;
-}
