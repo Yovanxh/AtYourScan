@@ -23,13 +23,30 @@ export function renderKDSView(container, store) {
     render();
   };
 
+  const onUtrSubmitted = (e) => {
+    try {
+      new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
+    } catch (_) {}
+    render();
+  };
+
   window.removeEventListener('ORDER_PAID', onOrderPaid);
   window.addEventListener('ORDER_PAID', onOrderPaid);
+  window.removeEventListener('ORDER_UTR_SUBMITTED', onUtrSubmitted);
+  window.addEventListener('ORDER_UTR_SUBMITTED', onUtrSubmitted);
 
   function render() {
     const currentVenueId = store.venue?.id || store.venue?.cafe_id;
+    const pendingUtrOrders = (store.orders || []).filter(o => {
+      return (o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL') && o.status !== 'Completed' && o.status !== 'Cancelled';
+    });
+
     const activeOrders = (store.orders || []).filter(o => {
       if (o.status === 'Completed' || o.status === 'Cancelled') return false;
+      // DO NOT route to kitchen display while awaiting admin UTR verification
+      if (o.status === 'AWAITING_VERIFICATION' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || o.payment_status === 'UTR_SUBMITTED') {
+        return false;
+      }
       // Filter out phantom/dummy tickets with empty items
       if (!Array.isArray(o.items) || o.items.length === 0) return false;
       // Scope strictly to active venue
@@ -64,6 +81,28 @@ export function renderKDSView(container, store) {
     container.innerHTML = `
       <div class="kds-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col font-sans select-none">
         
+        ${pendingUtrOrders.map(pOrder => `
+          <div class="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-500 text-white px-6 py-4 font-black text-sm flex flex-wrap items-center justify-between gap-4 shadow-xl border-b border-amber-300 animate-pulse sticky top-0 z-50">
+            <div class="flex items-center gap-3">
+              <span class="text-2xl animate-bounce">🔔</span>
+              <div>
+                <div class="text-sm font-extrabold">Table ${pOrder.table_number || pOrder.table_id || 'QR'} Payment Submitted!</div>
+                <div class="text-xs text-amber-100 font-medium mt-0.5">
+                  Amount: ₹${Number(pOrder.total_amount).toFixed(2)} | UTR: <span class="font-mono font-bold text-white bg-black/25 px-2 py-0.5 rounded-md">${pOrder.utr_number || 'Pending'}</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button data-approve-utr="${pOrder.id}" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">
+                ✅ Verify & Accept Order
+              </button>
+              <button data-reject-utr="${pOrder.id}" class="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">
+                ❌ Reject / Invalid UTR
+              </button>
+            </div>
+          </div>
+        `).join('')}
+
         ${latestPaidAlert ? `
         <div class="bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-6 py-3 font-black text-sm flex items-center justify-between shadow-lg animate-pulse sticky top-0 z-40">
           <div class="flex items-center gap-2">
@@ -200,6 +239,11 @@ export function renderKDSView(container, store) {
               }">
                 ${(order.source || 'QR_DINE_IN').replace('_', ' ')}
               </span>
+              ${order.is_pay_later ? `
+                <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
+                  🍽️ Pay Later (Tab Open)
+                </span>
+              ` : ''}
             </div>
 
             <!-- Elapsed Timer -->
@@ -313,6 +357,27 @@ export function renderKDSView(container, store) {
     container.querySelector('#btn-dismiss-paid-alert')?.addEventListener('click', () => {
       latestPaidAlert = null;
       render();
+    });
+
+    container.querySelectorAll('[data-approve-utr]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const orderId = e.currentTarget.dataset.approveUtr;
+        if (typeof store.adminApproveOrderUtr === 'function') {
+          await store.adminApproveOrderUtr(orderId);
+        }
+        render();
+      });
+    });
+
+    container.querySelectorAll('[data-reject-utr]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const orderId = e.currentTarget.dataset.rejectUtr;
+        const reason = prompt('Reason for rejecting UTR reference:', 'Invalid UTR reference');
+        if (reason && typeof store.adminRejectOrderUtr === 'function') {
+          await store.adminRejectOrderUtr(orderId, reason);
+        }
+        render();
+      });
     });
 
     // Staff cash override

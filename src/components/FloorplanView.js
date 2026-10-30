@@ -89,8 +89,17 @@ export function renderFloorplanView(container, reactiveStore) {
     render();
   };
 
+  const onUtrSubmitted = (e) => {
+    try {
+      new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
+    } catch (_) {}
+    render();
+  };
+
   window.removeEventListener('ORDER_PAID', onOrderPaid);
   window.addEventListener('ORDER_PAID', onOrderPaid);
+  window.removeEventListener('ORDER_UTR_SUBMITTED', onUtrSubmitted);
+  window.addEventListener('ORDER_UTR_SUBMITTED', onUtrSubmitted);
 
   function render() {
     if (reactiveStore && typeof reactiveStore.syncTableStates === 'function') {
@@ -101,6 +110,14 @@ export function renderFloorplanView(container, reactiveStore) {
     const orders = reactiveStore.orders || [];
     const activeTables = tables.filter(t => t.status && t.status !== 'Vacant' && t.status !== 'Available');
     const vacantTables = tables.filter(t => !t.status || t.status === 'Vacant' || t.status === 'Available');
+
+    const pendingUtrOrders = (orders || []).filter(o => {
+      return (o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL') && o.status !== 'Completed' && o.status !== 'Cancelled';
+    });
+
+    const activePayLaterOrders = (orders || []).filter(o => {
+      return o.is_pay_later && o.payment_status === 'PENDING' && o.status !== 'Completed' && o.status !== 'Cancelled';
+    });
 
     // Group tables by architectural zones
     const zones = [
@@ -124,6 +141,38 @@ export function renderFloorplanView(container, reactiveStore) {
     container.innerHTML = `
       <div class="floorplan-app floorplan-stub min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col font-sans select-none p-4 sm:p-6 space-y-6 max-w-7xl mx-auto">
         
+        ${pendingUtrOrders.map(pOrder => `
+          <div class="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-500 text-white p-4 px-6 rounded-2xl shadow-xl flex flex-wrap items-center justify-between gap-4 border border-amber-300 animate-pulse">
+            <div class="flex items-center gap-3">
+              <span class="text-2xl animate-bounce">🔔</span>
+              <div>
+                <div class="font-black text-sm text-white">Table ${pOrder.table_number || pOrder.table_id || 'QR'} Payment Submitted!</div>
+                <div class="text-xs text-amber-100 font-medium mt-0.5">
+                  Amount: ₹${Number(pOrder.total_amount).toFixed(2)} | UTR: <span class="font-mono font-bold text-white bg-black/25 px-2 py-0.5 rounded-md">${pOrder.utr_number || 'Pending'}</span>
+                </div>
+              </div>
+            </div>
+            <div class="flex items-center gap-2">
+              <button data-approve-utr="${pOrder.id}" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">
+                ✅ Verify & Accept Order
+              </button>
+              <button data-reject-utr="${pOrder.id}" class="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">
+                ❌ Reject / Invalid UTR
+              </button>
+            </div>
+          </div>
+        `).join('')}
+
+        ${activePayLaterOrders.length > 0 ? `
+          <div class="bg-amber-50 border border-amber-200 text-amber-900 px-5 py-2.5 rounded-2xl text-xs font-bold flex items-center justify-between shadow-xs">
+            <div class="flex items-center gap-2">
+              <span>🍽️</span>
+              <span>Active Pay Later Tabs: ${activePayLaterOrders.map(o => `Table ${o.table_number}`).join(', ')}</span>
+            </div>
+            <span class="text-[11px] bg-amber-200/80 px-2.5 py-0.5 rounded-full font-extrabold text-amber-950">Tabs Open</span>
+          </div>
+        ` : ''}
+
         ${latestPaidAlert ? `
           <div class="bg-gradient-to-r from-emerald-600 to-teal-600 text-white px-6 py-3 font-black text-sm flex items-center justify-between shadow-lg rounded-2xl animate-pulse">
             <div class="flex items-center gap-2">
@@ -256,6 +305,14 @@ export function renderFloorplanView(container, reactiveStore) {
                               <span>📱</span>
                               <span>QR</span>
                             </a>
+                            <button 
+                              data-clear-table-session="${tableNum}" 
+                              title="Clear active table session and free for new diners"
+                              class="px-2 py-0.5 rounded-lg bg-rose-50 hover:bg-rose-100 border border-rose-200 text-rose-600 hover:text-rose-700 text-[11px] font-bold transition-all active:scale-95 cursor-pointer"
+                              onclick="event.stopPropagation()"
+                            >
+                              🔓 Free Table
+                            </button>
                             <span class="text-[11px] font-bold px-2.5 py-0.5 rounded-full ${statusPill}">
                               ${statusText}
                             </span>

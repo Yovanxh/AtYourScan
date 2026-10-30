@@ -91,6 +91,11 @@ export function renderCustomerView(container, store, options = {}) {
     if (venue && (!venue.upi_id || venue.upi_id.includes('ptaxis') || venue.upi_id.includes('thecopperoak'))) {
       venue.upi_id = 'vanshwaghre-1@okicici';
     }
+
+    // Table Occupation & Menu Freeze Check
+    const isTableFrozen = (typeof store.isTableOccupiedByOther === 'function') 
+      ? store.isTableOccupiedByOther(tableNumber) 
+      : false;
     if (!venue || (!venue.name && !venue.id)) {
       container.innerHTML = `
         <div class="customer-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col items-center justify-center font-sans p-6 text-center select-none">
@@ -547,6 +552,26 @@ export function renderCustomerView(container, store, options = {}) {
         <!-- UPI Instant Pay Modal -->
         ${showUPIModal && lastPlacedOrder ? renderUPIModal(lastPlacedOrder, venue) : ''}
 
+        <!-- High-Contrast Table Freeze Modal Overlay (Occupied by another guest) -->
+        ${isTableFrozen ? `
+          <div class="fixed inset-0 z-50 bg-[#121223]/95 backdrop-blur-md flex items-center justify-center p-6 text-center select-none animate-in fade-in duration-200">
+            <div class="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-rose-300 space-y-4">
+              <div class="w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-3xl mx-auto shadow-inner">
+                ⚠️
+              </div>
+              <h2 class="text-xl font-black text-[#181C2E]">Table ${tableNumber} is Currently Active</h2>
+              <p class="text-sm text-[#646982] leading-relaxed">
+                Table ${tableNumber} is currently under an active order. If you were just seated, please ask the staff to clear the table.
+              </p>
+              <div class="pt-2 space-y-2">
+                <button id="btn-refresh-freeze-status" class="w-full py-3.5 bg-[#FF7622] hover:bg-[#F15B00] text-white font-bold text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-orange-500/25 active:scale-98 transition-all cursor-pointer">
+                  🔄 Refresh Table Status
+                </button>
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
       </div>
     `;
 
@@ -906,25 +931,19 @@ export function renderCustomerView(container, store, options = {}) {
                 </div>
               ` : `
                 <button 
-                  id="btn-fire-order-kitchen" 
+                  id="btn-place-order-upi" 
                   class="w-full py-4 bg-[#FF7622] hover:bg-[#F15B00] text-white font-bold text-xs rounded-2xl shadow-xl shadow-orange-500/30 flex items-center justify-center gap-2 active:scale-98 transition-all cursor-pointer uppercase tracking-wider"
                 >
-                  <span>🔥 Fire Order to Kitchen</span>
+                  <span>⚡ Instant Pay (UPI)</span>
                   <span class="text-sm">₹${totals.total}</span>
                 </button>
 
-                <div class="flex items-center gap-2 pt-0.5">
-                  <button 
-                    id="btn-place-order-upi" 
-                    class="flex-1 py-3 bg-[#ECF0F4] hover:bg-[#E2E8F0] text-[#181C2E] text-xs font-bold rounded-2xl text-center active:scale-98 transition-all cursor-pointer"
-                  >
-                    ⚡ Instant UPI Pay
-                  </button>
+                <div class="pt-1">
                   <button 
                     id="btn-place-order-table" 
-                    class="flex-1 py-3 bg-[#ECF0F4] hover:bg-[#E2E8F0] text-[#181C2E] text-xs font-bold rounded-2xl text-center active:scale-98 transition-all cursor-pointer"
+                    class="w-full py-3.5 bg-[#F0F5FA] hover:bg-[#E2E8F0] text-[#181C2E] text-xs font-bold rounded-2xl text-center active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1.5"
                   >
-                    Pay at Counter
+                    <span>🍽️ Pay Later (Keep Tab Open)</span>
                   </button>
                 </div>
               `}
@@ -1210,12 +1229,27 @@ export function renderCustomerView(container, store, options = {}) {
             </p>
           </div>
 
+          <!-- Admin Verification Waiting State Card -->
+          <div id="utr-waiting-card" class="hidden bg-amber-50 border-2 border-amber-300 rounded-2xl p-5 text-center space-y-3 animate-in fade-in duration-300">
+            <div class="w-14 h-14 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-2xl font-bold mx-auto animate-pulse shadow-sm">
+              ⏳
+            </div>
+            <h4 class="text-sm font-black text-amber-900">Verifying with Counter</h4>
+            <p class="text-xs text-amber-800 leading-relaxed font-medium">
+              Verifying your transaction with the counter. Please wait a moment while staff confirms your payment...
+            </p>
+            <div class="bg-white/90 rounded-xl p-2.5 border border-amber-200 text-xs">
+              <span class="block text-[10px] text-[#A0A5BA] font-bold uppercase tracking-wider">Submitted UTR</span>
+              <span class="font-mono font-black text-sm text-amber-900" id="waiting-utr-display"></span>
+            </div>
+          </div>
+
           <!-- Animated Confirmation Card -->
           <div id="utr-success-card" class="hidden bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center space-y-2 animate-in fade-in duration-300">
             <div class="w-12 h-12 rounded-full bg-[#059C6A] text-white flex items-center justify-center text-xl font-bold mx-auto animate-bounce">
               ✓
             </div>
-            <h4 class="text-sm font-black text-[#059C6A]">Payment Received!</h4>
+            <h4 class="text-sm font-black text-[#059C6A]">Order Accepted & Preparing!</h4>
             <p class="text-xs text-[#181C2E]">
               Total ₹${formattedAmount} verified via UTR: <span class="font-mono font-bold text-emerald-800" id="confirmed-utr-display"></span>
             </p>
@@ -1486,6 +1520,17 @@ export function renderCustomerView(container, store, options = {}) {
         ? crypto.randomUUID()
         : `AYS-${Math.floor(100 + Math.random() * 900)}`;
 
+      let sessionToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_table_session') : null;
+      if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
+        sessionToken = store.generateTableSessionToken();
+        try {
+          localStorage.setItem('ays_table_session', sessionToken);
+          localStorage.setItem('ays_table_session_table', String(tableId));
+        } catch {}
+      }
+
+      const isPayLater = paymentMode === 'PAY_LATER' || paymentMode === 'PAY_AT_COUNTER';
+
       const orderPayload = {
         id: orderId,
         cafe_id: activeCafeId,
@@ -1493,7 +1538,12 @@ export function renderCustomerView(container, store, options = {}) {
         table_id: tableId,
         table_number: parseInt(tableId, 10),
         table_label: `Table ${tableId}`,
-        status: 'in_kitchen',
+        status: isPayLater ? 'CONFIRMED' : 'AWAITING_VERIFICATION',
+        payment_method: isPayLater ? 'PAY_LATER' : 'UPI',
+        payment_status: isPayLater ? 'PENDING' : 'PENDING',
+        verification_status: isPayLater ? 'APPROVED' : 'PENDING_APPROVAL',
+        is_pay_later: isPayLater,
+        session_token: sessionToken,
         items: store.cart.items.map(ci => ({
           id: ci.item.id,
           dish_id: ci.item.id,
@@ -1513,21 +1563,17 @@ export function renderCustomerView(container, store, options = {}) {
       };
 
       const order = store.createOrder(orderPayload);
+      if (typeof store.setTableSession === 'function') {
+        store.setTableSession(tableId, sessionToken, order.id);
+      }
       store.clearCart();
       isCartOpen = false;
       lastPlacedOrder = order;
-      activeTab = 'track';
 
       if (paymentMode === 'UPI') {
         showUPIModal = true;
-        const upiUri = generateUPIDeepLink(order, store.venue);
-        if (isMobileDevice()) {
-          try {
-            window.location.href = upiUri;
-          } catch (e) {
-            console.log('Mobile intent launch fallback:', e);
-          }
-        }
+      } else {
+        activeTab = 'track';
       }
 
       render();
@@ -1648,7 +1694,16 @@ export function renderCustomerView(container, store, options = {}) {
         if (btnText) btnText.textContent = 'Verifying with Bank...';
 
         try {
-          const verifyRes = await store.verifyOrderUtr(orderId, sanitized);
+          let sessionToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_table_session') : null;
+          if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
+            sessionToken = store.generateTableSessionToken();
+            try {
+              localStorage.setItem('ays_table_session', sessionToken);
+              localStorage.setItem('ays_table_session_table', String(tableNum));
+            } catch {}
+          }
+
+          const verifyRes = await store.submitOrderUtrForAdminApproval(orderId, sanitized, sessionToken);
           if (!verifyRes.success) {
             if (btnSpinner) btnSpinner.classList.add('hidden');
             if (btnText) btnText.textContent = '✓ Verify & Complete Payment';
@@ -1659,17 +1714,16 @@ export function renderCustomerView(container, store, options = {}) {
             return;
           }
 
-          // Verification succeeded!
+          // Transition to Admin Verification Waiting State
           const formSection = container.querySelector('#utr-form-section');
-          const successCard = container.querySelector('#utr-success-card');
-          const utrDisplay = container.querySelector('#confirmed-utr-display');
+          const waitingCard = container.querySelector('#utr-waiting-card');
+          const waitingUtrDisplay = container.querySelector('#waiting-utr-display');
           if (formSection) formSection.classList.add('hidden');
-          if (utrDisplay) utrDisplay.textContent = sanitized;
-          if (successCard) successCard.classList.remove('hidden');
+          if (waitingUtrDisplay) waitingUtrDisplay.textContent = sanitized;
+          if (waitingCard) waitingCard.classList.remove('hidden');
 
-          setTimeout(() => {
-            handleSettlement(orderId, tableNum, sanitized);
-          }, 1200);
+          // If cart has items, clear it
+          store.clearCart();
         } catch (err) {
           if (btnSpinner) btnSpinner.classList.add('hidden');
           if (btnText) btnText.textContent = '✓ Verify & Complete Payment';

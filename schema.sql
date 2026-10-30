@@ -72,7 +72,11 @@ ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS utr_number TEXT;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_status TEXT DEFAULT 'PENDING';
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS payment_method TEXT DEFAULT 'UPI';
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS is_locked BOOLEAN DEFAULT false;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS session_token TEXT;
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS verification_status TEXT DEFAULT 'PENDING_APPROVAL';
+ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS is_pay_later BOOLEAN DEFAULT false;
 ALTER TABLE public.orders ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now());
+ALTER TABLE public.venues ADD COLUMN IF NOT EXISTS active_sessions JSONB DEFAULT '{}'::jsonb;
 
 -- Partial unique index for non-null, non-staff-override UTRs
 CREATE UNIQUE INDEX IF NOT EXISTS idx_orders_utr_number_unique 

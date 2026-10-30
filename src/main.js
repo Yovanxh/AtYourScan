@@ -1708,6 +1708,37 @@ if (store && store.subscribe) {
     if (store.isLocked && currentView !== 'customer') {
       openLockScreenGate();
     }
+    if (event?.type === 'ORDER_UTR_SUBMITTED' && event.order && currentView !== 'customer' && typeof document !== 'undefined') {
+      const existingToast = document.getElementById('toast-incoming-utr');
+      if (!existingToast && document.body) {
+        const order = event.order;
+        const tableId = order.table_number || order.table_id || 'QR';
+        const toastEl = document.createElement('div');
+        toastEl.id = 'toast-incoming-utr';
+        toastEl.className = 'fixed top-6 right-6 z-50 bg-[#181C2E] text-white p-4 rounded-2xl shadow-2xl border border-amber-500/80 flex items-center gap-3.5 animate-in slide-in-from-top duration-300 max-w-sm select-none';
+        toastEl.innerHTML = `
+          <div class="w-10 h-10 rounded-xl bg-amber-500/20 text-amber-400 flex items-center justify-center text-xl font-bold flex-shrink-0 animate-bounce">
+            🔔
+          </div>
+          <div class="flex-1 min-w-0">
+            <div class="flex items-center gap-2">
+              <span class="font-black text-sm text-white">Payment Submitted!</span>
+              <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900">Table ${tableId}</span>
+            </div>
+            <p class="text-xs text-zinc-400 mt-0.5 truncate">UTR: ${order.utr_number || 'Pending'} • ₹${order.total_amount}</p>
+          </div>
+          <button id="btn-global-utr-view" class="px-3 py-1.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-white text-xs font-bold transition-all ml-1 cursor-pointer flex-shrink-0">
+            Review
+          </button>
+        `;
+        document.body.appendChild(toastEl);
+        toastEl.querySelector('#btn-global-utr-view')?.addEventListener('click', () => {
+          toastEl.remove();
+          switchView('floorplan');
+        });
+        setTimeout(() => { if (toastEl.parentNode) toastEl.remove(); }, 10000);
+      }
+    }
     if (event?.type === 'ORDER_FIRED' && event.order && currentView !== 'customer' && typeof document !== 'undefined') {
       const existingToast = document.getElementById('toast-incoming-order');
       if (!existingToast && document.body) {

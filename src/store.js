@@ -1349,22 +1349,32 @@ class ReactiveStore {
                 });
               });
 
-              this.orders = ordersData.map(remoteOrder => ({
+              const remoteIds = new Set(ordersData.map(o => o.id));
+              const localUnsynced = (this.orders || []).filter(lo => !remoteIds.has(lo.id));
+
+              const mappedRemote = ordersData.map(remoteOrder => ({
                 id: remoteOrder.id,
                 venue_id: remoteOrder.venue_id,
                 cafe_id: remoteOrder.cafe_id || remoteOrder.venue_id,
                 table_number: remoteOrder.table_number,
                 source: remoteOrder.source || 'QR_DINE_IN',
                 status: remoteOrder.status || 'New',
+                verification_status: remoteOrder.verification_status || 'APPROVED',
+                payment_status: remoteOrder.payment_status || (remoteOrder.status === 'Completed' ? 'PAID' : 'PENDING'),
+                session_token: remoteOrder.session_token || null,
+                utr_number: remoteOrder.utr_number || null,
+                is_pay_later: Boolean(remoteOrder.is_pay_later),
                 total_amount: parseFloat(remoteOrder.total_amount) || 0,
                 items: Array.isArray(remoteOrder.items) && remoteOrder.items.length > 0 
                   ? remoteOrder.items 
                   : (itemsByOrder[remoteOrder.id] || []),
                 created_at: remoteOrder.created_at
               })).filter(o => Array.isArray(o.items) && o.items.length > 0);
+
+              this.orders = [...localUnsynced, ...mappedRemote];
             } else {
-              // 0 rows in Supabase: strictly empty array (never fall back to mock tickets)
-              this.orders = [];
+              // 0 remote rows in Supabase: keep any active local orders created in this session
+              this.orders = (this.orders || []).filter(o => o && o.items && o.items.length > 0);
             }
             if (this.orders.length > 0) {
               this.save('ays_orders', this.orders);
@@ -1375,7 +1385,7 @@ class ReactiveStore {
           console.warn('[Sync] Failed to sync orders from Supabase:', syncErr);
         }
       } else if (!isTestEnv) {
-        this.orders = [];
+        this.orders = (this.orders || []).filter(o => o && o.items && o.items.length > 0);
       }
 
       // 5. Sync dishes from Supabase Cloud
@@ -1601,6 +1611,13 @@ class ReactiveStore {
     taxes = null,
     total_amount = null,
     status = 'New',
+    payment_status = 'PENDING',
+    payment_method = 'UPI',
+    verification_status = 'PENDING_APPROVAL',
+    is_pay_later = false,
+    session_token = null,
+    utr_number = null,
+    is_locked = false,
     created_at = null
   }) {
     if (!items.length) return null;
@@ -1619,7 +1636,12 @@ class ReactiveStore {
       ? Number(total_amount)
       : Math.round(resolvedSubtotal + resolvedTaxes);
 
-    const orderIdToUse = id || order_id || `AYS-${Math.floor(100 + Math.random() * 900)}`;
+    const isProvidedUuid = id && typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+    const orderIdToUse = isProvidedUuid 
+      ? id 
+      : ((typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') 
+          ? crypto.randomUUID() 
+          : (id || order_id || `AYS-${Math.floor(100 + Math.random() * 900)}`));
 
     const newOrder = {
       id: orderIdToUse,
@@ -1634,10 +1656,13 @@ class ReactiveStore {
       taxes: resolvedTaxes,
       total_amount: resolvedTotal,
       bill_amount: resolvedTotal,
-      payment_status: 'PENDING',
-      payment_method: 'UPI',
-      is_locked: false,
-      utr_number: null,
+      payment_status: payment_status || 'PENDING',
+      payment_method: payment_method || (is_pay_later ? 'PAY_LATER' : 'UPI'),
+      verification_status: verification_status || (is_pay_later ? 'APPROVED' : 'PENDING_APPROVAL'),
+      is_pay_later: Boolean(is_pay_later),
+      session_token: session_token || null,
+      is_locked: Boolean(is_locked),
+      utr_number: utr_number || null,
       notes: notes || '',
       customer_name: customer_name || `Guest at ${resolvedTableLabel}`,
       items: items.map(it => ({
@@ -1658,21 +1683,27 @@ class ReactiveStore {
 
     if (supabase && typeof supabase.from === 'function' && !globalThis.IS_TEST_ENV && (typeof process === 'undefined' || process.env?.NODE_ENV !== 'test')) {
       try {
-        const q = supabase.from('orders').insert([{
-          id: orderIdToUse,
+        const dbStatus = (newOrder.status === 'in_kitchen' || newOrder.status === 'CONFIRMED') 
+          ? 'Preparing' 
+          : (newOrder.status === 'AWAITING_VERIFICATION' ? 'New' : (newOrder.status || 'New'));
+
+        const orderInsertPayload = {
           venue_id: resolvedCafeId,
           cafe_id: resolvedCafeId,
           table_number: resolvedTableNum,
           source: newOrder.source,
-          status: newOrder.status,
+          status: dbStatus,
           total_amount: newOrder.total_amount,
-          bill_amount: newOrder.bill_amount,
-          payment_status: newOrder.payment_status,
-          payment_method: newOrder.payment_method,
-          is_locked: false,
-          utr_number: null,
+          session_token: newOrder.session_token || null,
+          verification_status: newOrder.verification_status || 'PENDING_APPROVAL',
+          is_pay_later: Boolean(newOrder.is_pay_later),
           items: newOrder.items
-        }]);
+        };
+        if (isProvidedUuid) {
+          orderInsertPayload.id = orderIdToUse;
+        }
+
+        const q = supabase.from('orders').insert([orderInsertPayload]);
         if (q && typeof q.then === 'function') {
           q.then(() => {}, () => {});
         }
@@ -3152,6 +3183,297 @@ class ReactiveStore {
     return order;
   }
 
+  generateTableSessionToken() {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 9);
+  }
+
+  setTableSession(tableNumber, token, orderId) {
+    const tNum = parseInt(tableNumber, 10);
+    if (!tNum) return null;
+    if (!this.venue) this.venue = {};
+    if (!this.venue.active_sessions || typeof this.venue.active_sessions !== 'object') {
+      this.venue.active_sessions = {};
+    }
+
+    const sessionObj = {
+      token: token || this.generateTableSessionToken(),
+      orderId: orderId || null,
+      status: 'OCCUPIED',
+      updatedAt: new Date().toISOString()
+    };
+
+    this.venue.active_sessions[tNum] = sessionObj;
+    this.save('ays_venue', this.venue);
+
+    // Update table in this.tables
+    const tbl = this.tables.find(t => t.table_number === tNum);
+    if (tbl) {
+      tbl.status = 'Active Ordering';
+      if (orderId) tbl.active_order_id = orderId;
+      this.save('ays_tables', this.tables);
+    }
+
+    // Persist to Supabase venues table
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    const targetVenueId = this.venue?.id || 'cafe-first-way-cafe-hotc';
+    if (client && targetVenueId) {
+      try {
+        const p = client.from('venues').update({ active_sessions: this.venue.active_sessions }).eq('id', targetVenueId);
+        if (p && typeof p.then === 'function') p.then(() => {}, () => {});
+      } catch (err) {
+        console.warn('[Store] setTableSession Supabase update error:', err);
+      }
+    }
+
+    this.notifyListeners?.({ type: 'TABLE_SESSION_UPDATED', tableNumber: tNum, session: sessionObj });
+    this.notify?.({ type: 'TABLE_SESSION_UPDATED', tableNumber: tNum, session: sessionObj });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('TABLE_SESSION_UPDATED', { detail: { tableNumber: tNum, session: sessionObj } }));
+    }
+    return sessionObj;
+  }
+
+  clearTableSession(tableNumber) {
+    const tNum = parseInt(tableNumber, 10);
+    if (!tNum) return false;
+
+    if (this.venue && this.venue.active_sessions && typeof this.venue.active_sessions === 'object') {
+      delete this.venue.active_sessions[tNum];
+      this.save('ays_venue', this.venue);
+    }
+
+    // Reset table in this.tables
+    const tbl = this.tables.find(t => t.table_number === tNum);
+    if (tbl) {
+      tbl.status = 'Vacant';
+      tbl.party_size = 0;
+      tbl.seated_guests = 0;
+      tbl.seated_at = null;
+      tbl.active_order_id = null;
+      this.save('ays_tables', this.tables);
+    }
+
+    // If local device belongs to this table, clear client token
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const sessTable = localStorage.getItem('ays_table_session_table');
+        if (sessTable == tNum) {
+          localStorage.removeItem('ays_table_session');
+          localStorage.removeItem('ays_table_session_table');
+        }
+      } catch {}
+    }
+
+    // Persist to Supabase venues
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    const targetVenueId = this.venue?.id || 'cafe-first-way-cafe-hotc';
+    if (client && targetVenueId) {
+      try {
+        const p = client.from('venues').update({ active_sessions: this.venue?.active_sessions || {} }).eq('id', targetVenueId);
+        if (p && typeof p.then === 'function') p.then(() => {}, () => {});
+      } catch (err) {
+        console.warn('[Store] clearTableSession Supabase update error:', err);
+      }
+    }
+
+    this.notifyListeners?.({ type: 'TABLE_SESSION_CLEARED', tableNumber: tNum });
+    this.notify?.({ type: 'TABLE_SESSION_CLEARED', tableNumber: tNum });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('TABLE_SESSION_CLEARED', { detail: { tableNumber: tNum } }));
+    }
+    return true;
+  }
+
+  isTableOccupiedByOther(tableNumber, clientToken = null) {
+    const tNum = parseInt(tableNumber, 10);
+    if (!tNum) return false;
+    const session = this.venue?.active_sessions?.[tNum];
+    if (!session || session.status !== 'OCCUPIED') return false;
+
+    const tokenToCheck = clientToken || (typeof localStorage !== 'undefined' ? localStorage.getItem('ays_table_session') : null);
+    const sessionTable = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_table_session_table') : null;
+
+    if (tokenToCheck && session.token === tokenToCheck) {
+      if (sessionTable && sessionTable != tNum) {
+        return true;
+      }
+      return false; // Owned by current client session
+    }
+    return true; // Occupied by another guest/session
+  }
+
+  async submitOrderUtrForAdminApproval(orderIdOrPayload, rawUtrNumber, sessionToken = null) {
+    const utr = String(rawUtrNumber || '').trim().replace(/\D/g, '');
+    if (!/^\d{12}$/.test(utr)) {
+      return { success: false, error: 'Invalid UTR format. Must be exactly 12 numeric digits.' };
+    }
+
+    const orderId = typeof orderIdOrPayload === 'string' ? orderIdOrPayload : (orderIdOrPayload.id || orderIdOrPayload.order_id);
+
+    // Duplicate check
+    const localDuplicate = this.orders.find(o => o.utr_number === utr && o.id !== orderId);
+    if (localDuplicate) {
+      return { success: false, error: 'This transaction reference (UTR) has already been submitted for another order.' };
+    }
+
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    if (client && typeof client.from === 'function') {
+      try {
+        const { data: dbDup } = await client
+          .from('orders')
+          .select('id, table_number')
+          .eq('utr_number', utr)
+          .neq('id', orderId)
+          .maybeSingle();
+
+        if (dbDup) {
+          return { success: false, error: 'This transaction reference (UTR) has already been submitted for another order.' };
+        }
+      } catch {}
+    }
+
+    let targetOrder = this.orders.find(o => o.id === orderId || o.order_id === orderId);
+
+    if (!targetOrder && typeof orderIdOrPayload === 'object') {
+      targetOrder = this.createOrder({
+        ...orderIdOrPayload,
+        utr_number: utr,
+        payment_status: 'UTR_SUBMITTED',
+        verification_status: 'PENDING_ADMIN_APPROVAL',
+        status: 'AWAITING_VERIFICATION',
+        session_token: sessionToken,
+        payment_method: 'UPI',
+        is_pay_later: false,
+        is_locked: true
+      });
+    } else if (targetOrder) {
+      targetOrder.utr_number = utr;
+      targetOrder.payment_status = 'UTR_SUBMITTED';
+      targetOrder.verification_status = 'PENDING_ADMIN_APPROVAL';
+      targetOrder.status = 'AWAITING_VERIFICATION';
+      targetOrder.payment_method = 'UPI';
+      targetOrder.is_locked = true;
+      if (sessionToken) targetOrder.session_token = sessionToken;
+      targetOrder.updated_at = new Date().toISOString();
+      this.save('ays_orders', this.orders);
+    }
+
+    const tableNum = targetOrder?.table_number || (typeof orderIdOrPayload === 'object' ? orderIdOrPayload.table_number : null);
+    if (tableNum && sessionToken) {
+      this.setTableSession(tableNum, sessionToken, targetOrder?.id || orderId);
+    }
+
+    if (client && targetOrder) {
+      try {
+        await client.from('orders').update({
+          status: 'New',
+          verification_status: 'PENDING_ADMIN_APPROVAL',
+          session_token: sessionToken || targetOrder.session_token || null
+        }).eq('id', targetOrder.id);
+      } catch (err) {
+        console.warn('[Store] submitOrderUtrForAdminApproval Supabase note:', err);
+      }
+    }
+
+    this.notifyListeners?.({ type: 'ORDER_UTR_SUBMITTED', order: targetOrder, utrNumber: utr });
+    this.notify?.({ type: 'ORDER_UTR_SUBMITTED', order: targetOrder, utrNumber: utr });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ORDER_UTR_SUBMITTED', { detail: { order: targetOrder, utrNumber: utr } }));
+    }
+
+    return { success: true, order: targetOrder, utr };
+  }
+
+  async adminApproveOrderUtr(orderId) {
+    let order = this.orders.find(o => o.id === orderId || o.order_id === orderId);
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    if (!order && client && typeof client.from === 'function') {
+      try {
+        const { data } = await client.from('orders').select('*').eq('id', orderId).maybeSingle();
+        if (data) {
+          order = data;
+          this.orders.unshift(order);
+        }
+      } catch {}
+    }
+    if (!order) return { success: false, error: 'Order not found' };
+
+    order.payment_status = 'PAID';
+    order.verification_status = 'APPROVED';
+    order.status = 'CONFIRMED';
+    order.is_locked = false;
+    order.updated_at = new Date().toISOString();
+    this.save('ays_orders', this.orders);
+
+    if (client) {
+      try {
+        await client.from('orders').update({
+          status: 'Preparing',
+          verification_status: 'APPROVED',
+          is_locked: false,
+          updated_at: new Date().toISOString()
+        }).eq('id', order.id);
+      } catch (err) {
+        console.warn('[Store] adminApproveOrderUtr Supabase sync warning:', err);
+      }
+    }
+
+    this.notifyListeners?.({ type: 'ORDER_APPROVED', order });
+    this.notifyListeners?.({ type: 'ORDER_PAID', order, utrNumber: order.utr_number });
+    this.notify?.({ type: 'ORDER_APPROVED', order });
+    this.notify?.({ type: 'ORDER_PAID', order, utrNumber: order.utr_number });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ORDER_APPROVED', { detail: { order } }));
+      window.dispatchEvent(new CustomEvent('ORDER_PAID', { detail: { order, utrNumber: order.utr_number } }));
+    }
+
+    return { success: true, order };
+  }
+
+  async adminRejectOrderUtr(orderId, reason = 'Invalid UTR reference') {
+    let order = this.orders.find(o => o.id === orderId || o.order_id === orderId);
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    if (!order && client && typeof client.from === 'function') {
+      try {
+        const { data } = await client.from('orders').select('*').eq('id', orderId).maybeSingle();
+        if (data) {
+          order = data;
+          this.orders.unshift(order);
+        }
+      } catch {}
+    }
+    if (!order) return { success: false, error: 'Order not found' };
+
+    order.verification_status = 'REJECTED';
+    order.payment_status = 'FAILED';
+    order.status = 'AWAITING_VERIFICATION';
+    order.rejection_reason = reason;
+    order.updated_at = new Date().toISOString();
+    this.save('ays_orders', this.orders);
+
+    if (client) {
+      try {
+        await client.from('orders').update({
+          verification_status: 'REJECTED',
+          updated_at: new Date().toISOString()
+        }).eq('id', order.id);
+      } catch (err) {
+        console.warn('[Store] adminRejectOrderUtr Supabase sync warning:', err);
+      }
+    }
+
+    this.notifyListeners?.({ type: 'ORDER_REJECTED', order, reason });
+    this.notify?.({ type: 'ORDER_REJECTED', order, reason });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ORDER_REJECTED', { detail: { order, reason } }));
+    }
+
+    return { success: true, order };
+  }
+
   generateUpiUrl(amount, tableNumber) {
     let upiId = this.venue?.upi_id || 'vanshwaghre-1@okicici';
     if (!upiId || upiId.includes('ptaxis') || upiId.includes('thecopperoak')) {
@@ -3378,6 +3700,22 @@ class ReactiveStore {
         })
         .subscribe();
 
+      // Also listen for venues table realtime changes for active_sessions
+      if (!this._venuesRealtimeChannel) {
+        this._venuesRealtimeChannel = client
+          .channel('venues-realtime-sync')
+          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'venues' }, payload => {
+            if (payload.new?.active_sessions) {
+              if (!this.venue) this.venue = {};
+              this.venue.active_sessions = payload.new.active_sessions;
+              this.save('ays_venue', this.venue);
+              this.notifyListeners?.({ type: 'ACTIVE_SESSIONS_UPDATED', active_sessions: payload.new.active_sessions });
+              this.notify?.({ type: 'ACTIVE_SESSIONS_UPDATED', active_sessions: payload.new.active_sessions });
+            }
+          })
+          .subscribe();
+      }
+
       return this._ordersRealtimeChannel;
     } catch (e) {
       console.warn('[Store] Realtime channel init failed:', e);
@@ -3396,11 +3734,10 @@ class ReactiveStore {
     const tableNum = parseInt(tableNumber, 10);
     if (isNaN(tableNum)) return false;
 
-    const tbl = this.tables.find(t => t.table_number === tableNum);
-    if (!tbl) return false;
+    const tbl = this.tables ? this.tables.find(t => t.table_number === tableNum) : null;
 
     // Mark all active orders for this table as Completed & Paid
-    const activeOrders = this.orders.filter(
+    const activeOrders = (this.orders || []).filter(
       o => o.table_number === tableNum && o.status !== 'Completed' && o.status !== 'Cancelled'
     );
 
@@ -3416,13 +3753,25 @@ class ReactiveStore {
     });
     this.save('ays_orders', this.orders);
 
-    // Reset table to Vacant state
-    tbl.status = 'Vacant';
-    tbl.party_size = 0;
-    tbl.seated_guests = 0;
-    tbl.seated_at = null;
-    tbl.active_order_id = null;
-    this.save('ays_tables', this.tables);
+    // Reset table to Vacant state if present in table layout
+    if (tbl) {
+      tbl.status = 'Vacant';
+      tbl.party_size = 0;
+      tbl.seated_guests = 0;
+      tbl.seated_at = null;
+      tbl.active_order_id = null;
+      this.save('ays_tables', this.tables);
+    }
+
+    // Always clear active table session
+    if (this.venue?.active_sessions && this.venue.active_sessions[tableNum]) {
+      delete this.venue.active_sessions[tableNum];
+      this.save('ays_venue', this.venue);
+      const client = this.supabase || supabase;
+      if (client && this.venue?.id) {
+        client.from('venues').update({ active_sessions: this.venue.active_sessions }).eq('id', this.venue.id).then(() => {}, () => {});
+      }
+    }
 
     // Dismiss any pending service calls for this table
     this.serviceRequests = this.serviceRequests.filter(r => r.table_number !== tableNum);
