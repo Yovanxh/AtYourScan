@@ -30,6 +30,24 @@ export function renderKDSView(container, store) {
     render();
   };
 
+  const onOrderApproved = (e) => {
+    try {
+      new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
+    } catch (_) {}
+    const detail = e.detail || {};
+    if (detail.order) {
+      const existing = (store.orders || []).find(o => o.id === detail.order.id);
+      if (existing) {
+        Object.assign(existing, detail.order);
+      } else if (store.orders) {
+        store.orders.unshift(detail.order);
+      }
+    }
+    render();
+  };
+
+  window.removeEventListener('ORDER_APPROVED', onOrderApproved);
+  window.addEventListener('ORDER_APPROVED', onOrderApproved);
   window.removeEventListener('ORDER_PAID', onOrderPaid);
   window.addEventListener('ORDER_PAID', onOrderPaid);
   window.removeEventListener('ORDER_UTR_SUBMITTED', onUtrSubmitted);
@@ -39,17 +57,22 @@ export function renderKDSView(container, store) {
     const currentVenueId = store.venue?.id || store.venue?.cafe_id;
     const pendingUtrOrders = (store.orders || []).filter(o => {
       const isUnverifiedInstant = (o.payment_method === 'UPI' || !o.is_pay_later) && o.verification_status !== 'APPROVED';
-      const isUtrSubmitted = o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || (Boolean(o.utr_number) && String(o.utr_number).trim().length === 12);
-      return isUnverifiedInstant && isUtrSubmitted && o.status !== 'Completed' && o.status !== 'Cancelled';
+      const isUtrSubmitted = o.payment_status === 'UTR_SUBMITTED' || (Boolean(o.utr_number) && String(o.utr_number).trim().length === 12);
+      return isUnverifiedInstant && isUtrSubmitted && o.status !== 'Completed' && o.status !== 'Cancelled' && o.verification_status !== 'REJECTED';
     });
 
     const activeOrders = (store.orders || []).filter(o => {
-      if (o.status === 'Completed' || o.status === 'Cancelled') return false;
+      const st = String(o.status || '').toUpperCase();
+      if (st === 'COMPLETED' || st === 'CANCELLED' || st === 'VOID') return false;
+
       // Instant payment tickets must NEVER enter kitchen display until payment is verified by admin
-      if ((o.payment_method === 'UPI' || !o.is_pay_later) && (o.verification_status !== 'APPROVED' || o.payment_status !== 'PAID')) {
+      const isInstantPay = (o.payment_method === 'UPI' || !o.is_pay_later);
+      const isApproved = (o.verification_status === 'APPROVED' && o.payment_status === 'PAID');
+      if (isInstantPay && !isApproved) {
         return false;
       }
-      if (o.status === 'AWAITING_VERIFICATION' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || o.verification_status === 'PENDING_APPROVAL' || o.payment_status === 'UTR_SUBMITTED') {
+      if (st === 'AWAITING_VERIFICATION') return false;
+      if (o.verification_status === 'PENDING_ADMIN_APPROVAL' || o.verification_status === 'PENDING_APPROVAL' || o.verification_status === 'REJECTED' || o.payment_status === 'UTR_SUBMITTED') {
         return false;
       }
       // Filter out phantom/dummy tickets with empty items
@@ -91,7 +114,7 @@ export function renderKDSView(container, store) {
             <div class="flex items-center gap-3">
               <span class="text-2xl animate-bounce">🔔</span>
               <div>
-                <div class="text-sm font-extrabold">Table ${pOrder.table_number || pOrder.table_id || 'QR'} Payment Submitted!</div>
+                <div class="text-sm font-extrabold">🔔 Payment Verification: Table ${pOrder.table_number || pOrder.table_id || 'QR'}</div>
                 <div class="text-xs text-amber-100 font-medium mt-0.5">
                   Amount: ₹${Number(pOrder.total_amount).toFixed(2)} | UTR: <span class="font-mono font-bold text-white bg-black/25 px-2 py-0.5 rounded-md">${pOrder.utr_number || 'Pending'}</span>
                 </div>
@@ -99,7 +122,7 @@ export function renderKDSView(container, store) {
             </div>
             <div class="flex items-center gap-2">
               <button data-approve-utr="${pOrder.id}" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">
-                ✅ Verify & Accept Order
+                ✅ Accept & Confirm
               </button>
               <button data-reject-utr="${pOrder.id}" class="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">
                 ❌ Reject / Invalid UTR
@@ -246,7 +269,7 @@ export function renderKDSView(container, store) {
               </span>
               ${order.is_pay_later ? `
                 <span class="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-900 border border-amber-300">
-                  🍽️ Pay Later (Tab Open)
+                  🍽️ DINE-IN TAB
                 </span>
               ` : ''}
             </div>
@@ -425,5 +448,10 @@ export function renderKDSView(container, store) {
   return () => {
     clearInterval(timerInterval);
     unsubscribe();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('ORDER_APPROVED', onOrderApproved);
+      window.removeEventListener('ORDER_PAID', onOrderPaid);
+      window.removeEventListener('ORDER_UTR_SUBMITTED', onUtrSubmitted);
+    }
   };
 }

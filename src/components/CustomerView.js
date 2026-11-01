@@ -558,7 +558,13 @@ export function renderCustomerView(container, store, options = {}) {
         ${customizerItem ? renderCustomizerModal(customizerItem, customInstructions) : ''}
 
         <!-- UPI Instant Pay Modal -->
-        ${showUPIModal && lastPlacedOrder ? renderUPIModal(lastPlacedOrder, venue) : ''}
+        ${showUPIModal ? renderUPIModal(lastPlacedOrder || {
+          id: null,
+          total_amount: totals.total,
+          bill_amount: totals.total,
+          table_number: tableNumber || store.cart?.table_number || 1,
+          items: store.cart?.items || []
+        }, venue) : ''}
 
         <!-- High-Contrast Table Freeze Modal Overlay (Occupied by another guest) -->
         ${isTableFrozen ? `
@@ -1245,11 +1251,11 @@ export function renderCustomerView(container, store, options = {}) {
             
             <button 
               id="btn-submit-order-utr" 
-              data-order-id="${order.id}"
+              data-order-id="${order.id || ''}"
               data-table-number="${orderTableNum}"
               class="w-full py-3.5 bg-gradient-to-r from-[#059C6A] to-[#10B981] hover:from-[#047851] hover:to-[#059C6A] text-white font-black text-xs rounded-2xl shadow-lg shadow-emerald-500/20 active:scale-98 transition-all flex items-center justify-center gap-2 cursor-pointer uppercase tracking-wider"
             >
-              <span id="btn-utr-text">✓ Verify & Complete Payment</span>
+              <span id="btn-utr-text">Confirm Payment</span>
               <span id="btn-utr-spinner" class="hidden animate-spin text-sm">⏳</span>
             </button>
             <p class="text-[10px] text-[#A0A5BA] text-center">
@@ -1258,28 +1264,42 @@ export function renderCustomerView(container, store, options = {}) {
           </div>
 
           <!-- Admin Verification Waiting State Card -->
-          <div id="utr-waiting-card" class="hidden bg-amber-50 border-2 border-amber-300 rounded-2xl p-5 text-center space-y-3 animate-in fade-in duration-300">
+          <div id="utr-waiting-card" class="${(order.verification_status === 'PENDING_APPROVAL' || order.verification_status === 'PENDING_ADMIN_APPROVAL' || order.payment_status === 'UTR_SUBMITTED') ? 'block' : 'hidden'} bg-amber-50 border-2 border-amber-300 rounded-2xl p-5 text-center space-y-3 animate-in fade-in duration-300">
             <div class="w-14 h-14 rounded-full bg-amber-100 text-amber-600 flex items-center justify-center text-2xl font-bold mx-auto animate-pulse shadow-sm">
               ⏳
             </div>
             <h4 class="text-sm font-black text-amber-900">Verifying with Counter</h4>
             <p class="text-xs text-amber-800 leading-relaxed font-medium">
-              Verifying your transaction with the counter. Please wait a moment while staff confirms your payment...
+              Verifying your transaction with the counter. Please wait while staff confirms your payment...
             </p>
             <div class="bg-white/90 rounded-xl p-2.5 border border-amber-200 text-xs">
               <span class="block text-[10px] text-[#A0A5BA] font-bold uppercase tracking-wider">Submitted UTR</span>
-              <span class="font-mono font-black text-sm text-amber-900" id="waiting-utr-display"></span>
+              <span class="font-mono font-black text-sm text-amber-900" id="waiting-utr-display">${order.utr_number || ''}</span>
             </div>
           </div>
 
+          <!-- Admin Verification Rejected Card -->
+          <div id="utr-rejected-card" class="${(order.verification_status === 'REJECTED' || order.payment_status === 'FAILED') ? 'block' : 'hidden'} bg-rose-50 border-2 border-rose-300 rounded-2xl p-5 text-center space-y-3 animate-in fade-in duration-300">
+            <div class="w-14 h-14 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-2xl font-bold mx-auto shadow-sm">
+              ❌
+            </div>
+            <h4 class="text-sm font-black text-rose-900">Payment Could Not Be Verified</h4>
+            <p class="text-xs text-rose-800 leading-relaxed font-medium">
+              Transaction reference could not be verified. Please re-enter your UTR or pay at the counter.
+            </p>
+            <button type="button" id="btn-retry-utr" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer">
+              ✏️ Re-enter 12-digit UTR
+            </button>
+          </div>
+
           <!-- Animated Confirmation Card -->
-          <div id="utr-success-card" class="hidden bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center space-y-2 animate-in fade-in duration-300">
+          <div id="utr-success-card" class="${(order.verification_status === 'APPROVED' && order.payment_status === 'PAID') ? 'block' : 'hidden'} bg-emerald-50 border border-emerald-200 rounded-2xl p-4 text-center space-y-2 animate-in fade-in duration-300">
             <div class="w-12 h-12 rounded-full bg-[#059C6A] text-white flex items-center justify-center text-xl font-bold mx-auto animate-bounce">
               ✓
             </div>
-            <h4 class="text-sm font-black text-[#059C6A]">Order Accepted & Preparing!</h4>
+            <h4 class="text-sm font-black text-[#059C6A]">Order Accepted & Cooking!</h4>
             <p class="text-xs text-[#181C2E]">
-              Total ₹${formattedAmount} verified via UTR: <span class="font-mono font-bold text-emerald-800" id="confirmed-utr-display"></span>
+              Total ₹${formattedAmount} verified via UTR: <span class="font-mono font-bold text-emerald-800" id="confirmed-utr-display">${order.utr_number || ''}</span>
             </p>
           </div>
 
@@ -1563,7 +1583,7 @@ export function renderCustomerView(container, store, options = {}) {
         table_id: tableId,
         table_number: parseInt(tableId, 10),
         table_label: `Table ${tableId}`,
-        status: isPayLater ? 'CONFIRMED' : 'AWAITING_VERIFICATION',
+        status: isPayLater ? 'Preparing' : 'AWAITING_VERIFICATION',
         payment_method: isPayLater ? 'PAY_LATER' : 'UPI',
         payment_status: isPayLater ? 'PENDING' : 'PENDING',
         verification_status: isPayLater ? 'APPROVED' : 'PENDING_APPROVAL',
@@ -1607,10 +1627,22 @@ export function renderCustomerView(container, store, options = {}) {
 
     container.fireOrderToKitchen = fireOrderToKitchen;
 
-    // Fire Order to Kitchen buttons
-    container.querySelector('#btn-fire-order-kitchen')?.addEventListener('click', () => fireOrderToKitchen('PAY_AT_COUNTER'));
-    container.querySelector('#btn-place-order-table')?.addEventListener('click', () => fireOrderToKitchen('PAY_AT_COUNTER'));
-    container.querySelector('#btn-place-order-upi')?.addEventListener('click', () => fireOrderToKitchen('UPI'));
+    // Fire Order to Kitchen buttons (Zero Speculative Dispatches)
+    container.querySelector('#btn-fire-order-kitchen')?.addEventListener('click', () => fireOrderToKitchen('PAY_LATER'));
+    container.querySelector('#btn-place-order-table')?.addEventListener('click', () => fireOrderToKitchen('PAY_LATER'));
+    container.querySelector('#btn-place-order-upi')?.addEventListener('click', () => {
+      if (typeof store.isMaintenanceMode === 'function' && store.isMaintenanceMode()) {
+        alert('System Maintenance: Dine-in ordering is temporarily paused.');
+        return;
+      }
+      if (!store.cart?.items || store.cart.items.length === 0) {
+        alert('Your cart is empty. Please add dishes to proceed.');
+        return;
+      }
+      isCartOpen = false;
+      showUPIModal = true;
+      render();
+    });
 
     // View Tracker & Add More Dishes buttons
     container.querySelector('#btn-view-tracker')?.addEventListener('click', () => {
@@ -1719,10 +1751,40 @@ export function renderCustomerView(container, store, options = {}) {
             } catch {}
           }
 
-          const verifyRes = await store.submitOrderUtrForAdminApproval(orderId, sanitized, sessionToken);
+          let orderPayloadOrId = orderId;
+          if (!orderId || orderId === 'null' || orderId === 'undefined' || orderId === '') {
+            const cartTotals = store.getCartTotals();
+            const activeCafeId = store.venue?.id || store.venue?.cafe_id || 'AYS-VENUE-01';
+            orderPayloadOrId = {
+              cafe_id: activeCafeId,
+              venue_id: activeCafeId,
+              table_number: tableNum,
+              table_id: tableNum,
+              table_label: `Table ${tableNum}`,
+              items: (store.cart?.items || []).map(ci => ({
+                id: ci.item.id,
+                dish_id: ci.item.id,
+                dish_name: ci.item.name,
+                name: ci.item.name,
+                quantity: ci.quantity,
+                price: ci.item.price,
+                notes: ci.customization || '',
+                customization: ci.customization || ''
+              })),
+              subtotal: cartTotals.subtotal,
+              taxes: cartTotals.gst,
+              service_charge: cartTotals.serviceCharge,
+              total_amount: cartTotals.total,
+              source: 'QR_DINE_IN',
+              payment_method: 'UPI',
+              is_pay_later: false
+            };
+          }
+
+          const verifyRes = await store.submitOrderUtrForAdminApproval(orderPayloadOrId, sanitized, sessionToken);
           if (!verifyRes.success) {
             if (btnSpinner) btnSpinner.classList.add('hidden');
-            if (btnText) btnText.textContent = '✓ Verify & Complete Payment';
+            if (btnText) btnText.textContent = 'Confirm Payment';
             if (errBanner) {
               errBanner.textContent = verifyRes.error || 'Verification failed. Please check UTR.';
               errBanner.classList.remove('hidden');
@@ -1730,19 +1792,21 @@ export function renderCustomerView(container, store, options = {}) {
             return;
           }
 
+          lastPlacedOrder = verifyRes.order;
+          store.clearCart();
+
           // Transition to Admin Verification Waiting State
           const formSection = container.querySelector('#utr-form-section');
           const waitingCard = container.querySelector('#utr-waiting-card');
           const waitingUtrDisplay = container.querySelector('#waiting-utr-display');
+          const rejectedCard = container.querySelector('#utr-rejected-card');
+          if (rejectedCard) rejectedCard.classList.add('hidden');
           if (formSection) formSection.classList.add('hidden');
           if (waitingUtrDisplay) waitingUtrDisplay.textContent = sanitized;
           if (waitingCard) waitingCard.classList.remove('hidden');
-
-          // If cart has items, clear it
-          store.clearCart();
         } catch (err) {
           if (btnSpinner) btnSpinner.classList.add('hidden');
-          if (btnText) btnText.textContent = '✓ Verify & Complete Payment';
+          if (btnText) btnText.textContent = 'Confirm Payment';
           if (errBanner) {
             errBanner.textContent = err.message || 'System error verifying payment.';
             errBanner.classList.remove('hidden');
@@ -1750,6 +1814,31 @@ export function renderCustomerView(container, store, options = {}) {
         }
       });
     }
+
+    // Re-enter 12-digit UTR on rejection
+    container.querySelector('#btn-retry-utr')?.addEventListener('click', () => {
+      const formSection = container.querySelector('#utr-form-section');
+      const rejectedCard = container.querySelector('#utr-rejected-card');
+      const errBanner = container.querySelector('#utr-error-banner');
+      if (errBanner) errBanner.classList.add('hidden');
+      if (rejectedCard) rejectedCard.classList.add('hidden');
+      if (formSection) formSection.classList.remove('hidden');
+      if (utrInput) {
+        utrInput.value = '';
+        utrInput.focus();
+      }
+    });
+
+    const onOrderRejected = (e) => {
+      const formSection = container.querySelector('#utr-form-section');
+      const waitingCard = container.querySelector('#utr-waiting-card');
+      const rejectedCard = container.querySelector('#utr-rejected-card');
+      if (waitingCard) waitingCard.classList.add('hidden');
+      if (formSection) formSection.classList.add('hidden');
+      if (rejectedCard) rejectedCard.classList.remove('hidden');
+    };
+    window.removeEventListener('ORDER_REJECTED', onOrderRejected);
+    window.addEventListener('ORDER_REJECTED', onOrderRejected);
 
     const confirmUPIBtn = container.querySelector('#btn-confirm-upi-paid');
     if (confirmUPIBtn) {
@@ -1950,5 +2039,10 @@ export function renderCustomerView(container, store, options = {}) {
     render();
   }
 
-  return () => unsubscribe();
+  return () => {
+    unsubscribe();
+    if (typeof window !== 'undefined') {
+      window.removeEventListener('ORDER_REJECTED', onOrderRejected);
+    }
+  };
 }

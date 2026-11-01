@@ -113,8 +113,8 @@ export function renderFloorplanView(container, reactiveStore) {
 
     const pendingUtrOrders = (orders || []).filter(o => {
       const isUnverifiedInstant = (o.payment_method === 'UPI' || !o.is_pay_later) && o.verification_status !== 'APPROVED';
-      const isUtrSubmitted = o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || (Boolean(o.utr_number) && String(o.utr_number).trim().length === 12);
-      return isUnverifiedInstant && isUtrSubmitted && o.status !== 'Completed' && o.status !== 'Cancelled';
+      const isUtrSubmitted = o.payment_status === 'UTR_SUBMITTED' || (Boolean(o.utr_number) && String(o.utr_number).trim().length === 12);
+      return isUnverifiedInstant && isUtrSubmitted && o.status !== 'Completed' && o.status !== 'Cancelled' && o.verification_status !== 'REJECTED';
     });
 
     const activePayLaterOrders = (orders || []).filter(o => {
@@ -148,7 +148,7 @@ export function renderFloorplanView(container, reactiveStore) {
             <div class="flex items-center gap-3">
               <span class="text-2xl animate-bounce">🔔</span>
               <div>
-                <div class="font-black text-sm text-white">Table ${pOrder.table_number || pOrder.table_id || 'QR'} Payment Submitted!</div>
+                <div class="font-black text-sm text-white">🔔 Payment Verification: Table ${pOrder.table_number || pOrder.table_id || 'QR'}</div>
                 <div class="text-xs text-amber-100 font-medium mt-0.5">
                   Amount: ₹${Number(pOrder.total_amount).toFixed(2)} | UTR: <span class="font-mono font-bold text-white bg-black/25 px-2 py-0.5 rounded-md">${pOrder.utr_number || 'Pending'}</span>
                 </div>
@@ -156,7 +156,7 @@ export function renderFloorplanView(container, reactiveStore) {
             </div>
             <div class="flex items-center gap-2">
               <button data-approve-utr="${pOrder.id}" class="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">
-                ✅ Verify & Accept Order
+                ✅ Accept & Confirm
               </button>
               <button data-reject-utr="${pOrder.id}" class="px-3 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">
                 ❌ Reject / Invalid UTR
