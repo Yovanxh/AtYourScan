@@ -331,6 +331,9 @@ export function renderPOSView(container, store) {
       settleTableBtn.addEventListener('click', () => {
         const tableOrders = store.orders.filter(o => o.table_number === selectedTable);
         tableOrders.forEach(o => store.updateOrderStatus(o.id, 'Completed'));
+        if (typeof store.clearTableSession === 'function') {
+          store.clearTableSession(selectedTable);
+        }
         selectedTable = null;
         render();
       });

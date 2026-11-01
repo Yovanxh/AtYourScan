@@ -92,10 +92,6 @@ export function renderCustomerView(container, store, options = {}) {
       venue.upi_id = 'vanshwaghre-1@okicici';
     }
 
-    // Table Occupation & Menu Freeze Check
-    const isTableFrozen = (typeof store.isTableOccupiedByOther === 'function') 
-      ? store.isTableOccupiedByOther(tableNumber) 
-      : false;
     if (!venue || (!venue.name && !venue.id)) {
       container.innerHTML = `
         <div class="customer-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col items-center justify-center font-sans p-6 text-center select-none">
@@ -263,6 +259,260 @@ export function renderCustomerView(container, store, options = {}) {
       return;
     }
 
+    // Strict Table Freeze Gate
+    const activeSession = store.venue?.active_sessions?.[tableNumber];
+    const myToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_table_session') : null;
+    const myActiveOrderId = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_active_order_id') : null;
+
+    if (activeSession && activeSession.status === 'OCCUPIED') {
+      // CASE A: The current user OWNS this session
+      if (myToken && activeSession.token === myToken) {
+        if (activeTab === 'add_dishes') {
+          renderMenu(venue);
+        } else {
+          // Render the Active Order Status / Dine-In Tab View (NOT the lock screen!)
+          renderActiveOrderView(activeSession.order_id || activeSession.orderId || myActiveOrderId);
+        }
+        return;
+      }
+
+      // CASE B: Someone else is scanning an occupied table (STRANGER)
+      // ONLY show the freeze modal here:
+      renderTableOccupiedModal(tableNumber);
+      return;
+    }
+
+    // CASE C: Table is vacant/free -> Render standard ordering menu
+    renderMenu(venue);
+  }
+
+  // High-Contrast Table Freeze Modal for unauthorized third-party scans
+  function renderTableOccupiedModal(tblNum) {
+    container.innerHTML = `
+      <div class="customer-app min-h-screen bg-[#121223]/95 backdrop-blur-md text-[#181C2E] flex items-center justify-center font-sans p-6 text-center select-none animate-in fade-in duration-200">
+        <div class="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-rose-300 space-y-4">
+          <div class="w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-3xl mx-auto shadow-inner">
+            ⚠️
+          </div>
+          <h2 class="text-xl font-black text-[#181C2E]">Table ${tblNum} is Currently Active</h2>
+          <p class="text-sm text-[#646982] leading-relaxed">
+            Table ${tblNum} is currently under an active order. If you were just seated, please ask the staff to clear the table.
+          </p>
+          <div class="pt-2 space-y-2">
+            <button id="btn-refresh-freeze-status" class="w-full py-3.5 bg-[#FF7622] hover:bg-[#F15B00] text-white font-bold text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-orange-500/25 active:scale-98 transition-all cursor-pointer">
+              🔄 Refresh Table Status
+            </button>
+          </div>
+        </div>
+      </div>
+    `;
+
+    container.querySelector('#btn-refresh-freeze-status')?.addEventListener('click', () => {
+      render();
+    });
+  }
+
+  // Active Order Status / Dine-In Tab View for the verified session owner
+  function renderActiveOrderView(orderId) {
+    const venue = store.venue || { name: 'Restaurant' };
+    const tableOrders = (store.orders || []).filter(
+      o => (o.table_number === tableNumber || o.table_id === tableNumber || String(o.table_number) === String(tableNumber) || String(o.table_id) === String(tableNumber)) 
+        && o.status !== 'Completed' && o.status !== 'Cancelled' && o.status !== 'Void'
+    );
+    let activeOrder = (orderId ? (store.orders || []).find(o => o.id === orderId) : null)
+      || tableOrders[0]
+      || lastPlacedOrder;
+
+    if (!activeOrder && lastPlacedOrder) {
+      activeOrder = lastPlacedOrder;
+    }
+
+    const tNum = activeOrder?.table_number || activeOrder?.table_id || tableNumber || '?';
+    const ordId = activeOrder?.id || orderId || 'LIVE';
+    const shortOrdId = String(ordId).length > 8 ? String(ordId).slice(-6) : ordId;
+
+    // Real-time Status Badge
+    const stUpper = String(activeOrder?.status || '').toUpperCase();
+    const isPayLater = Boolean(activeOrder?.payment_method === 'PAY_LATER' || activeOrder?.is_pay_later || activeOrder?.payment_method === 'PAY_AT_COUNTER');
+    const isInstantPay = activeOrder ? (!isPayLater && (activeOrder.payment_method === 'UPI' || !activeOrder.is_pay_later)) : false;
+    const isInstantUnverified = isInstantPay && (activeOrder?.verification_status !== 'APPROVED' || activeOrder?.payment_status !== 'PAID');
+
+    let statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-300">🟡 ORDER RECEIVED</span>';
+    if (isInstantUnverified) {
+      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">⏳ AWAITING VERIFICATION</span>';
+    } else if (stUpper === 'READY' || stUpper === 'SERVED') {
+      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">✅ READY</span>';
+    } else if (stUpper === 'COMPLETED') {
+      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-slate-100 text-slate-800 border border-slate-300">🍽️ COMPLETED</span>';
+    } else if (stUpper === 'PREPARING' || stUpper === 'IN_KITCHEN' || stUpper === 'CONFIRMED') {
+      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-orange-100 text-[#FF7622] border border-orange-300 animate-pulse">🔥 PREPARING</span>';
+    }
+
+    const items = activeOrder?.items || [];
+    const itemsHtml = items.length > 0 ? items.map(it => `
+      <div class="py-2.5 flex justify-between items-start border-b border-slate-100 last:border-0 text-xs">
+        <div>
+          <span class="font-bold text-[#181C2E]">${it.quantity || 1}x ${it.name || it.dish_name || 'Dish'}</span>
+          ${(it.notes || it.customization) ? `<p class="text-[11px] text-[#FF7622] font-medium mt-0.5">↳ ${it.notes || it.customization}</p>` : ''}
+        </div>
+        <span class="font-semibold text-[#646982]">₹${((Number(it.price) || 0) * (Number(it.quantity) || 1)).toFixed(2)}</span>
+      </div>
+    `).join('') : '<div class="py-3 text-xs text-[#A0A5BA] text-center">Items being loaded...</div>';
+
+    container.innerHTML = `
+      <div class="customer-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col font-sans pb-16 select-none">
+        
+        <!-- Persistent Top Header -->
+        <header class="sticky top-0 z-30 bg-white/95 backdrop-blur-md border-b border-[#E3E8ED] px-4 py-3 shadow-xs">
+          <div class="max-w-md mx-auto flex items-center justify-between">
+            <div class="flex items-center space-x-3">
+              <div class="w-10 h-10 rounded-2xl bg-[#FF7622] text-white flex items-center justify-center font-bold text-lg shadow-md shadow-orange-500/25">
+                🍽️
+              </div>
+              <div>
+                <h1 class="text-sm font-bold tracking-tight text-[#181C2E] flex items-center gap-1.5">
+                  ${venue.name}
+                  <span class="w-2 h-2 rounded-full bg-[#059C6A] inline-block"></span>
+                </h1>
+                <p class="text-[11px] text-[#646982] flex items-center gap-1.5">
+                  <span class="font-bold text-[#FF7622]">Table ${tNum}</span>
+                  <span class="text-[#A0A5BA]">•</span>
+                  <span class="text-[#059C6A] font-bold text-[9px] px-1.5 py-0.2 rounded-full bg-[#E6F7F0]">Live Tab Active</span>
+                </p>
+              </div>
+            </div>
+
+            <button id="btn-refresh-active-view" class="px-3 py-1.5 rounded-full bg-[#F0F5FA] hover:bg-[#E3E8ED] text-xs font-bold text-[#181C2E] flex items-center gap-1 active:scale-95 transition-all cursor-pointer shadow-xs">
+              🔄 Refresh
+            </button>
+          </div>
+        </header>
+
+        <!-- Active Dining Tab Content -->
+        <main class="max-w-md mx-auto w-full px-4 pt-4 flex-1 space-y-4">
+          
+          <!-- Order Card Header -->
+          <div class="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
+            <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+              <div>
+                <div class="flex items-center gap-2">
+                  <h2 class="font-black text-lg text-[#181C2E]">Table ${tNum}</h2>
+                  <span class="text-[11px] font-mono text-[#A0A5BA] bg-[#F0F5FA] px-2 py-0.5 rounded-md">Order #${shortOrdId}</span>
+                </div>
+                <p class="text-[11px] text-[#A0A5BA] mt-0.5">
+                  ${activeOrder?.created_at ? `Fired at ${new Date(activeOrder.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Active Dine-In Session'}
+                </p>
+              </div>
+              <div>
+                ${statusBadge}
+              </div>
+            </div>
+
+            <!-- Instant Pay vs Pay Later specifics -->
+            ${isInstantPay ? `
+              ${isInstantUnverified ? `
+                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs space-y-2 text-amber-900">
+                  <div class="flex items-center justify-between font-bold">
+                    <span class="flex items-center gap-1.5"><span>⏳</span> Verifying Transaction</span>
+                    <span class="font-mono text-[11px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md">UTR: ${activeOrder?.utr_number || 'SUBMITTED'}</span>
+                  </div>
+                  <p class="text-[11px] text-amber-800 leading-relaxed">
+                    Verifying your transaction with the counter. Please wait a moment while staff confirms your payment...
+                  </p>
+                </div>
+              ` : `
+                <div class="bg-[#EBF7F2] border border-emerald-200 rounded-2xl p-4 text-xs space-y-1.5 text-emerald-900">
+                  <div class="flex items-center justify-between font-bold">
+                    <span class="flex items-center gap-1.5"><span>✅</span> Paid via UPI</span>
+                    <span class="font-mono text-[11px] bg-emerald-600 text-white px-2 py-0.5 rounded-md">UTR: ${activeOrder?.utr_number || 'VERIFIED'}</span>
+                  </div>
+                  <p class="text-[11px] text-emerald-700">⏱ Estimated kitchen prep: ~10-15 mins</p>
+                </div>
+              `}
+            ` : `
+              <!-- Pay Later Dining Tab Banner -->
+              <div class="bg-gradient-to-r from-amber-50 to-orange-50 border border-amber-200 rounded-2xl p-3.5 text-xs text-amber-900 flex items-center justify-between">
+                <div>
+                  <span class="font-black text-xs block text-amber-950">🍽️ Active Dining Tab</span>
+                  <span class="text-[11px] text-amber-800">Pay at the end of your meal or settle anytime via UPI.</span>
+                </div>
+                <span class="text-xs font-black bg-amber-200 text-amber-900 px-2 py-0.5 rounded-full">TAB</span>
+              </div>
+            `}
+
+            <!-- Itemized Dishes Summary -->
+            <div class="bg-[#F7F8F9] rounded-2xl p-4 space-y-1 divide-y divide-slate-100">
+              <span class="text-[10px] text-[#A0A5BA] uppercase font-bold tracking-wider block pb-2">Dishes in Order</span>
+              ${itemsHtml}
+            </div>
+
+            <!-- Bill Totals & Actions for Pay Later -->
+            ${!isInstantPay ? `
+              <div class="bg-[#F7F8F9] rounded-2xl p-4 space-y-1.5 border border-slate-100 text-xs">
+                <div class="flex justify-between text-[#646982]">
+                  <span>Subtotal</span>
+                  <span>₹${Number(activeOrder?.subtotal || (activeOrder?.total_amount ? activeOrder.total_amount * 0.95 : 0)).toFixed(2)}</span>
+                </div>
+                <div class="flex justify-between text-[#646982]">
+                  <span>Taxes & GST (5%)</span>
+                  <span>₹${Number(activeOrder?.taxes || (activeOrder?.total_amount ? activeOrder.total_amount * 0.05 : 0)).toFixed(2)}</span>
+                </div>
+                <div class="flex justify-between font-black text-sm text-[#181C2E] pt-2 border-t border-slate-200">
+                  <span>Running Total</span>
+                  <span class="text-[#FF7622]">₹${Number(activeOrder?.total_amount || activeOrder?.bill_amount || 0).toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div class="pt-2 grid grid-cols-2 gap-3">
+                <button id="btn-active-add-more" class="py-3 px-4 rounded-2xl bg-white border border-[#FF7622] text-[#FF7622] hover:bg-[#FFEBE4] font-bold text-xs uppercase tracking-wider active:scale-98 transition-all cursor-pointer shadow-xs text-center flex items-center justify-center gap-1">
+                  <span>+</span> Add More Dishes
+                </button>
+                <button id="btn-active-pay-bill" class="py-3 px-4 rounded-2xl bg-[#059C6A] hover:bg-[#047851] text-white font-black text-xs uppercase tracking-wider active:scale-98 transition-all cursor-pointer shadow-md shadow-emerald-500/20 text-center flex items-center justify-center gap-1.5">
+                  <span>💳</span> Pay Bill
+                </button>
+              </div>
+            ` : `
+              <div class="pt-2">
+                <button id="btn-active-add-more" class="w-full py-3 px-4 rounded-2xl bg-white border border-[#FF7622]/40 text-[#FF7622] hover:bg-[#FFEBE4] font-bold text-xs uppercase tracking-wider active:scale-98 transition-all cursor-pointer shadow-xs text-center flex items-center justify-center gap-1.5">
+                  <span>🍽️ + Order More Dishes</span>
+                </button>
+              </div>
+            `}
+
+          </div>
+        </main>
+
+        <!-- UPI Modal if open -->
+        ${showUPIModal && activeOrder ? renderUPIModal(activeOrder, venue) : ''}
+
+      </div>
+    `;
+
+    // Event listeners for active order view
+    container.querySelector('#btn-refresh-active-view')?.addEventListener('click', () => {
+      render();
+    });
+
+    container.querySelector('#btn-active-add-more')?.addEventListener('click', () => {
+      activeTab = 'add_dishes';
+      render();
+    });
+
+    container.querySelector('#btn-active-pay-bill')?.addEventListener('click', () => {
+      if (activeOrder) {
+        lastPlacedOrder = activeOrder;
+        showUPIModal = true;
+        render();
+      }
+    });
+
+    if (showUPIModal && activeOrder) {
+      bindUPIModalEvents(activeOrder);
+    }
+  }
+
+  function renderMenu(currentVenue) {
+    const venue = currentVenue || store.venue || { name: 'First Way Cafe' };
     const totals = store.getCartTotals();
     const rawDishes = (store.dishes && store.dishes.length > 0) ? store.dishes : (store.menuItems || []);
     const categories = ['All', ...new Set((store.categories || []).map(c => c.name).concat(rawDishes.map(i => i.category)).filter(Boolean))];
@@ -565,26 +815,6 @@ export function renderCustomerView(container, store, options = {}) {
           table_number: tableNumber || store.cart?.table_number || 1,
           items: store.cart?.items || []
         }, venue) : ''}
-
-        <!-- High-Contrast Table Freeze Modal Overlay (Occupied by another guest) -->
-        ${isTableFrozen ? `
-          <div class="fixed inset-0 z-50 bg-[#121223]/95 backdrop-blur-md flex items-center justify-center p-6 text-center select-none animate-in fade-in duration-200">
-            <div class="bg-white rounded-3xl p-8 max-w-md w-full shadow-2xl border border-rose-300 space-y-4">
-              <div class="w-16 h-16 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center text-3xl mx-auto shadow-inner">
-                ⚠️
-              </div>
-              <h2 class="text-xl font-black text-[#181C2E]">Table ${tableNumber} is Currently Active</h2>
-              <p class="text-sm text-[#646982] leading-relaxed">
-                Table ${tableNumber} is currently under an active order. If you were just seated, please ask the staff to clear the table.
-              </p>
-              <div class="pt-2 space-y-2">
-                <button id="btn-refresh-freeze-status" class="w-full py-3.5 bg-[#FF7622] hover:bg-[#F15B00] text-white font-bold text-xs uppercase tracking-wider rounded-2xl shadow-lg shadow-orange-500/25 active:scale-98 transition-all cursor-pointer">
-                  🔄 Refresh Table Status
-                </button>
-              </div>
-            </div>
-          </div>
-        ` : ''}
 
       </div>
     `;
@@ -1566,13 +1796,16 @@ export function renderCustomerView(container, store, options = {}) {
         : `AYS-${Math.floor(100 + Math.random() * 900)}`;
 
       let sessionToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_table_session') : null;
-      if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
+      if (!sessionToken && typeof crypto !== 'undefined' && crypto.randomUUID) {
+        sessionToken = crypto.randomUUID();
+      } else if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
         sessionToken = store.generateTableSessionToken();
-        try {
-          localStorage.setItem('ays_table_session', sessionToken);
-          localStorage.setItem('ays_table_session_table', String(tableId));
-        } catch {}
       }
+      try {
+        localStorage.setItem('ays_table_session', sessionToken);
+        localStorage.setItem('ays_active_order_id', orderId);
+        localStorage.setItem('ays_table_session_table', String(tableId));
+      } catch {}
 
       const isPayLater = paymentMode === 'PAY_LATER' || paymentMode === 'PAY_AT_COUNTER';
 
@@ -1611,6 +1844,9 @@ export function renderCustomerView(container, store, options = {}) {
       if (typeof store.setTableSession === 'function') {
         store.setTableSession(tableId, sessionToken, order.id);
       }
+      try {
+        localStorage.setItem('ays_active_order_id', order.id);
+      } catch {}
       store.clearCart();
       isCartOpen = false;
       lastPlacedOrder = order;
@@ -1743,13 +1979,15 @@ export function renderCustomerView(container, store, options = {}) {
 
         try {
           let sessionToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_table_session') : null;
-          if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
+          if (!sessionToken && typeof crypto !== 'undefined' && crypto.randomUUID) {
+            sessionToken = crypto.randomUUID();
+          } else if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
             sessionToken = store.generateTableSessionToken();
-            try {
-              localStorage.setItem('ays_table_session', sessionToken);
-              localStorage.setItem('ays_table_session_table', String(tableNum));
-            } catch {}
           }
+          try {
+            localStorage.setItem('ays_table_session', sessionToken);
+            localStorage.setItem('ays_table_session_table', String(tableNum));
+          } catch {}
 
           let orderPayloadOrId = orderId;
           if (!orderId || orderId === 'null' || orderId === 'undefined' || orderId === '') {
@@ -1777,6 +2015,7 @@ export function renderCustomerView(container, store, options = {}) {
               total_amount: cartTotals.total,
               source: 'QR_DINE_IN',
               payment_method: 'UPI',
+              session_token: sessionToken,
               is_pay_later: false
             };
           }
@@ -1793,6 +2032,11 @@ export function renderCustomerView(container, store, options = {}) {
           }
 
           lastPlacedOrder = verifyRes.order;
+          try {
+            if (verifyRes.order?.id) {
+              localStorage.setItem('ays_active_order_id', verifyRes.order.id);
+            }
+          } catch {}
           store.clearCart();
 
           // Transition to Admin Verification Waiting State
@@ -2024,6 +2268,51 @@ export function renderCustomerView(container, store, options = {}) {
 
   const venueId = getVenueId();
 
+  const onSessionCleared = (e) => {
+    const clearedTable = e.detail?.tableNumber;
+    if (!clearedTable || clearedTable == tableNumber) {
+      if (typeof localStorage !== 'undefined') {
+        try {
+          localStorage.removeItem('ays_table_session');
+          localStorage.removeItem('ays_active_order_id');
+          localStorage.removeItem('ays_table_session_table');
+        } catch {}
+      }
+      activeTab = 'menu';
+      render();
+    }
+  };
+
+  const onSessionUpdated = () => {
+    render();
+  };
+
+  const onOrderStatusChanged = (e) => {
+    if (lastPlacedOrder && e.detail?.orderId === lastPlacedOrder.id) {
+      lastPlacedOrder.status = e.detail.status;
+    }
+    render();
+  };
+
+  const onOrderApproved = (e) => {
+    showUPIModal = false;
+    if (e.detail?.order) {
+      lastPlacedOrder = e.detail.order;
+    }
+    render();
+  };
+
+  if (typeof window !== 'undefined') {
+    window.removeEventListener('TABLE_SESSION_CLEARED', onSessionCleared);
+    window.addEventListener('TABLE_SESSION_CLEARED', onSessionCleared);
+    window.removeEventListener('TABLE_SESSION_UPDATED', onSessionUpdated);
+    window.addEventListener('TABLE_SESSION_UPDATED', onSessionUpdated);
+    window.removeEventListener('ORDER_STATUS_CHANGED', onOrderStatusChanged);
+    window.addEventListener('ORDER_STATUS_CHANGED', onOrderStatusChanged);
+    window.removeEventListener('ORDER_APPROVED', onOrderApproved);
+    window.addEventListener('ORDER_APPROVED', onOrderApproved);
+  }
+
   // When mounting, if store.dishes is empty, load dishes from Supabase before rendering
   if ((!store.dishes || store.dishes.length === 0) && typeof store.loadDishes === 'function') {
     (async () => {
@@ -2043,6 +2332,10 @@ export function renderCustomerView(container, store, options = {}) {
     unsubscribe();
     if (typeof window !== 'undefined') {
       window.removeEventListener('ORDER_REJECTED', onOrderRejected);
+      window.removeEventListener('TABLE_SESSION_CLEARED', onSessionCleared);
+      window.removeEventListener('TABLE_SESSION_UPDATED', onSessionUpdated);
+      window.removeEventListener('ORDER_STATUS_CHANGED', onOrderStatusChanged);
+      window.removeEventListener('ORDER_APPROVED', onOrderApproved);
     }
   };
 }

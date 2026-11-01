@@ -1380,6 +1380,7 @@ class ReactiveStore {
         tbl.seated_at = null;
         tbl.active_order_id = null;
         this.save('ays_tables', this.tables);
+        this.clearTableSession(order.table_number);
       }
     } else if (normalizedStatus === 'Ready' || normalizedStatus === 'Served') {
       if (tbl) {
@@ -2629,6 +2630,7 @@ class ReactiveStore {
     }
 
     this.syncTableStates();
+    this.clearTableSession(tableNum);
     this.playSound('bump');
     this.notify();
     return true;
@@ -2691,8 +2693,10 @@ class ReactiveStore {
       this.venue.active_sessions = {};
     }
 
+    const sessionToken = token || this.generateTableSessionToken();
     const sessionObj = {
-      token: token || this.generateTableSessionToken(),
+      token: sessionToken,
+      order_id: orderId || null,
       orderId: orderId || null,
       status: 'OCCUPIED',
       updatedAt: new Date().toISOString()
@@ -2707,6 +2711,17 @@ class ReactiveStore {
       tbl.status = 'Active Ordering';
       if (orderId) tbl.active_order_id = orderId;
       this.save('ays_tables', this.tables);
+    }
+
+    // Store session ownership locally on the diner's browser
+    if (typeof localStorage !== 'undefined') {
+      try {
+        localStorage.setItem('ays_table_session', sessionToken);
+        if (orderId) {
+          localStorage.setItem('ays_active_order_id', String(orderId));
+        }
+        localStorage.setItem('ays_table_session_table', String(tNum));
+      } catch {}
     }
 
     // Persist to Supabase venues table
@@ -2734,6 +2749,7 @@ class ReactiveStore {
     if (!tNum) return false;
 
     if (this.venue && this.venue.active_sessions && typeof this.venue.active_sessions === 'object') {
+      this.venue.active_sessions[tNum] = null;
       delete this.venue.active_sessions[tNum];
       this.save('ays_venue', this.venue);
     }
@@ -2753,8 +2769,9 @@ class ReactiveStore {
     if (typeof localStorage !== 'undefined') {
       try {
         const sessTable = localStorage.getItem('ays_table_session_table');
-        if (sessTable == tNum) {
+        if (!sessTable || sessTable == tNum) {
           localStorage.removeItem('ays_table_session');
+          localStorage.removeItem('ays_active_order_id');
           localStorage.removeItem('ays_table_session_table');
         }
       } catch {}
@@ -3397,6 +3414,7 @@ class ReactiveStore {
     }
 
     this.syncTableStates();
+    this.clearTableSession(tableNum);
     this.playSound('bump');
     this.notify();
     return true;
@@ -3466,6 +3484,7 @@ class ReactiveStore {
     }
 
     this.syncTableStates();
+    this.clearTableSession(tableNum);
     this.playSound('bump');
     this.notify();
     return true;
@@ -3600,6 +3619,7 @@ class ReactiveStore {
     }
 
     this.syncTableStates();
+    this.clearTableSession(tableNum);
     this.playSound('bump');
     this.notify();
     return true;
@@ -3623,6 +3643,7 @@ class ReactiveStore {
     this.save('ays_tables', this.tables);
 
     this.syncTableStates();
+    this.clearTableSession(tableNum);
     this.playSound('bump');
     this.notify();
     return true;
