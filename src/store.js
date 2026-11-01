@@ -1338,27 +1338,38 @@ class ReactiveStore {
     return newOrder;
   }
 
-  updateOrderStatus(orderId, nextStatus) {
+  async updateOrderStatus(orderId, nextStatus) {
     const order = this.orders.find(o => o.id === orderId);
     if (!order) return { success: false, error: 'Order not found' };
+
+    const statusMap = {
+      'PREPARING': 'Preparing',
+      'READY': 'Ready',
+      'COMPLETED': 'Completed',
+      'CANCELLED': 'Cancelled',
+      'NEW': 'New',
+      'IN_KITCHEN': 'Preparing'
+    };
+    const normalizedStatus = statusMap[String(nextStatus).toUpperCase()] || nextStatus;
 
     // Strict Enforcement: In Instant Payment, order cannot be prepared until payment is verified by admin
     const isInstantPay = (order.payment_method === 'UPI' || !order.is_pay_later);
     const isUnverified = (order.verification_status !== 'APPROVED' || order.payment_status !== 'PAID');
     if (isInstantPay && isUnverified) {
-      if (nextStatus === 'Preparing' || nextStatus === 'in_kitchen' || nextStatus === 'Ready') {
-        console.warn(`[Store] Blocked advancing unverified Instant Payment order #${orderId} to '${nextStatus}'. Admin payment verification required.`);
+      if (normalizedStatus === 'Preparing' || normalizedStatus === 'in_kitchen' || normalizedStatus === 'Ready') {
+        console.warn(`[Store] Blocked advancing unverified Instant Payment order #${orderId} to '${normalizedStatus}'. Admin payment verification required.`);
         return { success: false, error: 'Instant Payment must be verified and approved by admin before preparation can begin.' };
       }
     }
 
-    order.status = nextStatus;
+    order.status = normalizedStatus;
+    order.updated_at = new Date().toISOString();
     this.save('ays_orders', this.orders);
 
     const tbl = this.tables.find(t => t.table_number === order.table_number);
 
     // Update table status if completed or cancelled
-    if (nextStatus === 'Completed' || nextStatus === 'Cancelled') {
+    if (normalizedStatus === 'Completed' || normalizedStatus === 'Cancelled') {
       const activeForTable = this.orders.filter(
         o => o.table_number === order.table_number && o.status !== 'Completed' && o.status !== 'Cancelled'
       );
@@ -1370,12 +1381,12 @@ class ReactiveStore {
         tbl.active_order_id = null;
         this.save('ays_tables', this.tables);
       }
-    } else if (nextStatus === 'Ready' || nextStatus === 'Served') {
+    } else if (normalizedStatus === 'Ready' || normalizedStatus === 'Served') {
       if (tbl) {
         tbl.status = 'Food Ready';
         this.save('ays_tables', this.tables);
       }
-    } else if (nextStatus === 'in_kitchen' || nextStatus === 'Preparing') {
+    } else if (normalizedStatus === 'in_kitchen' || normalizedStatus === 'Preparing') {
       if (tbl) {
         tbl.status = 'Occupied / In Kitchen';
         this.save('ays_tables', this.tables);
@@ -1391,7 +1402,7 @@ class ReactiveStore {
         this.broadcastChannel.postMessage({
           type: 'ORDER_STATUS_CHANGED',
           orderId,
-          status: nextStatus,
+          status: normalizedStatus,
           senderTabId: this.tabId,
           venue_id: this.venue.id
         });
@@ -1404,20 +1415,32 @@ class ReactiveStore {
           this.supabaseChannel.send({
             type: 'broadcast',
             event: 'order_status_updated',
-            payload: { orderId, status: nextStatus, venue_id: this.venue.id }
+            payload: { orderId, status: normalizedStatus, venue_id: this.venue.id }
           }).catch(() => {});
         } catch {}
       }
     }
 
-    if (supabase && typeof supabase.from === 'function') {
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    if (client && typeof client.from === 'function') {
       try {
-        const dbStatus = (nextStatus === 'in_kitchen' ? 'Preparing' : nextStatus);
-        supabase.from('orders').update({ status: dbStatus }).eq('id', orderId).catch(() => {});
-      } catch {}
+        let res = await client.from('orders').update({
+          status: normalizedStatus,
+          updated_at: new Date().toISOString()
+        }).eq('id', orderId);
+
+        if (res?.error && res.error.message?.includes('updated_at')) {
+          await client.from('orders').update({
+            status: normalizedStatus
+          }).eq('id', orderId);
+        }
+      } catch (err) {
+        console.warn('[Store] Supabase updateOrderStatus warning:', err);
+      }
     }
 
-    this.notify({ type: 'ORDER_STATUS_CHANGED', orderId, status: nextStatus });
+    this.notify({ type: 'ORDER_STATUS_CHANGED', orderId, status: normalizedStatus });
+    return { success: true };
   }
 
   // --- COLLABORATIVE FAMILY & GROUP TABLE CART SUBSYSTEM ---
