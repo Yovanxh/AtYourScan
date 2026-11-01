@@ -1019,7 +1019,7 @@ class ReactiveStore {
     this.playSound('order_new');
     this.notify({ type: 'ORDER_APPROVED', order });
     this.notify({ type: 'ORDER_STATUS_CHANGED', orderId: order.id, status: 'Preparing' });
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
       window.dispatchEvent(new CustomEvent('ORDER_APPROVED', { detail: { order } }));
       window.dispatchEvent(new CustomEvent('ORDER_PAID', { detail: { order, utrNumber: order.utr_number } }));
       window.dispatchEvent(new CustomEvent('ORDER_STATUS_CHANGED', { detail: { orderId: order.id, status: 'Preparing' } }));
@@ -2878,13 +2878,22 @@ class ReactiveStore {
 
     if (client && targetOrder) {
       try {
-        await client.from('orders').update({
+        let { error } = await client.from('orders').update({
           status: 'New',
           verification_status: 'PENDING_APPROVAL',
           payment_status: 'UTR_SUBMITTED',
           utr_number: utr,
           session_token: sessionToken || targetOrder.session_token || null
         }).eq('id', targetOrder.id);
+
+        if (error) {
+          await client.from('orders').update({
+            status: 'New',
+            verification_status: 'PENDING_APPROVAL',
+            customer_name: `UTR: ${utr}`,
+            session_token: sessionToken || targetOrder.session_token || null
+          }).eq('id', targetOrder.id);
+        }
       } catch (err) {
         console.warn('[Store] submitOrderUtrForAdminApproval Supabase note:', err);
       }
@@ -2946,13 +2955,20 @@ class ReactiveStore {
 
     if (client) {
       try {
-        await client.from('orders').update({
+        let { error } = await client.from('orders').update({
           status: 'Preparing',
           verification_status: 'APPROVED',
           payment_status: 'PAID',
           is_locked: false,
           updated_at: new Date().toISOString()
         }).eq('id', order.id);
+
+        if (error) {
+          await client.from('orders').update({
+            status: 'Preparing',
+            verification_status: 'APPROVED'
+          }).eq('id', order.id);
+        }
       } catch (err) {
         console.warn('[Store] adminApproveOrderUtr Supabase sync warning:', err);
       }
@@ -2986,7 +3002,7 @@ class ReactiveStore {
     this.notify?.({ type: 'ORDER_APPROVED', order });
     this.notify?.({ type: 'ORDER_PAID', order, utrNumber: order.utr_number });
     this.notify?.({ type: 'ORDER_STATUS_CHANGED', orderId: order.id, status: 'Preparing' });
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
       window.dispatchEvent(new CustomEvent('ORDER_APPROVED', { detail: { order } }));
       window.dispatchEvent(new CustomEvent('ORDER_PAID', { detail: { order, utrNumber: order.utr_number } }));
       window.dispatchEvent(new CustomEvent('ORDER_STATUS_CHANGED', { detail: { orderId: order.id, status: 'Preparing' } }));
@@ -3018,11 +3034,17 @@ class ReactiveStore {
 
     if (client) {
       try {
-        await client.from('orders').update({
+        let { error } = await client.from('orders').update({
           verification_status: 'REJECTED',
           payment_status: 'FAILED',
           updated_at: new Date().toISOString()
         }).eq('id', order.id);
+
+        if (error) {
+          await client.from('orders').update({
+            verification_status: 'REJECTED'
+          }).eq('id', order.id);
+        }
       } catch (err) {
         console.warn('[Store] adminRejectOrderUtr Supabase sync warning:', err);
       }
@@ -3042,7 +3064,7 @@ class ReactiveStore {
 
     this.notifyListeners?.({ type: 'ORDER_REJECTED', order, reason });
     this.notify?.({ type: 'ORDER_REJECTED', order, reason });
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
       window.dispatchEvent(new CustomEvent('ORDER_REJECTED', { detail: { order, reason } }));
     }
 
@@ -3248,68 +3270,69 @@ class ReactiveStore {
     try {
       this._ordersRealtimeChannel = client
         .channel('orders-realtime-sync')
-        .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'orders' }, payload => {
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
           const updated = payload.new;
           if (!updated) return;
 
-          const existing = this.orders.find(o => o.id === updated.id);
-          if (existing) {
-            Object.assign(existing, updated);
-            this.save('ays_orders', this.orders);
-          } else {
-            this.orders.unshift(updated);
-            this.save('ays_orders', this.orders);
-          }
+          console.log("🔔 Realtime order event received in Store:", payload.eventType, updated);
 
-          if (updated.payment_status === 'UTR_SUBMITTED') {
+          const utrNumber = updated.utr_number || (updated.customer_name?.match(/\d{12}/)?.[0]) || null;
+          const isPendingUtr = 
+            (updated.payment_status === 'UTR_SUBMITTED' || 
+             (updated.verification_status === 'PENDING_APPROVAL' && !updated.is_pay_later) ||
+             Boolean(utrNumber)) &&
+            updated.verification_status !== 'APPROVED' &&
+            updated.verification_status !== 'REJECTED';
+
+          const normalized = {
+            ...updated,
+            utr_number: utrNumber || updated.utr_number,
+            payment_status: isPendingUtr ? 'UTR_SUBMITTED' : (updated.verification_status === 'APPROVED' ? 'PAID' : (updated.payment_status || 'PENDING')),
+            total: updated.total || updated.total_amount,
+            total_amount: updated.total_amount || updated.total
+          };
+
+          const existingIndex = this.orders.findIndex(o => o.id === updated.id);
+          if (existingIndex >= 0) {
+            this.orders[existingIndex] = { ...this.orders[existingIndex], ...normalized };
+          } else {
+            this.orders.unshift(normalized);
+          }
+          this.save('ays_orders', this.orders);
+
+          if (isPendingUtr) {
+            try {
+              new Audio('/notification.mp3').play().catch(() => {
+                new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
+              });
+            } catch (_) {}
             this.playSound('bell');
-            this.notifyListeners?.({ type: 'ORDER_UTR_SUBMITTED', order: updated, utrNumber: updated.utr_number });
-            this.notify?.({ type: 'ORDER_UTR_SUBMITTED', order: updated, utrNumber: updated.utr_number });
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('ORDER_UTR_SUBMITTED', { detail: { order: updated, utrNumber: updated.utr_number } }));
+            this.notifyListeners?.({ type: 'ORDER_UTR_SUBMITTED', order: normalized, utrNumber: normalized.utr_number });
+            this.notify?.({ type: 'ORDER_UTR_SUBMITTED', order: normalized, utrNumber: normalized.utr_number });
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent('ORDER_UTR_SUBMITTED', { detail: { order: normalized, utrNumber: normalized.utr_number } }));
             }
-          } else if (updated.payment_status === 'PAID' && updated.verification_status === 'APPROVED') {
+          } else if (updated.payment_status === 'PAID' || updated.verification_status === 'APPROVED') {
             this.playSound('order_new');
-            this.notifyListeners?.({ type: 'ORDER_APPROVED', order: updated });
-            this.notifyListeners?.({ type: 'ORDER_PAID', order: updated });
-            this.notify?.({ type: 'ORDER_APPROVED', order: updated });
-            this.notify?.({ type: 'ORDER_PAID', order: updated });
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('ORDER_APPROVED', { detail: { order: updated } }));
-              window.dispatchEvent(new CustomEvent('ORDER_PAID', { detail: { order: updated } }));
+            this.notifyListeners?.({ type: 'ORDER_APPROVED', order: normalized });
+            this.notifyListeners?.({ type: 'ORDER_PAID', order: normalized });
+            this.notify?.({ type: 'ORDER_APPROVED', order: normalized });
+            this.notify?.({ type: 'ORDER_PAID', order: normalized });
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent('ORDER_APPROVED', { detail: { order: normalized } }));
+              window.dispatchEvent(new CustomEvent('ORDER_PAID', { detail: { order: normalized } }));
             }
-          } else if (updated.verification_status === 'REJECTED') {
-            this.notifyListeners?.({ type: 'ORDER_REJECTED', order: updated, reason: updated.rejection_reason });
-            this.notify?.({ type: 'ORDER_REJECTED', order: updated, reason: updated.rejection_reason });
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('ORDER_REJECTED', { detail: { order: updated, reason: updated.rejection_reason } }));
+          } else if (updated.verification_status === 'REJECTED' || updated.payment_status === 'FAILED') {
+            this.notifyListeners?.({ type: 'ORDER_REJECTED', order: normalized, reason: updated.rejection_reason });
+            this.notify?.({ type: 'ORDER_REJECTED', order: normalized, reason: updated.rejection_reason });
+            if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+              window.dispatchEvent(new CustomEvent('ORDER_REJECTED', { detail: { order: normalized, reason: updated.rejection_reason } }));
             }
           }
         })
-        .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'orders' }, payload => {
-          const newOrder = payload.new;
-          if (!newOrder) return;
-          if (!this.orders.find(o => o.id === newOrder.id)) {
-            this.orders.unshift(newOrder);
-            this.save('ays_orders', this.orders);
-          }
-          if (newOrder.payment_status === 'UTR_SUBMITTED') {
-            this.playSound('bell');
-            this.notifyListeners?.({ type: 'ORDER_UTR_SUBMITTED', order: newOrder, utrNumber: newOrder.utr_number });
-            this.notify?.({ type: 'ORDER_UTR_SUBMITTED', order: newOrder, utrNumber: newOrder.utr_number });
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('ORDER_UTR_SUBMITTED', { detail: { order: newOrder, utrNumber: newOrder.utr_number } }));
-            }
-          } else if (newOrder.is_pay_later && newOrder.verification_status === 'APPROVED') {
-            this.playSound('order_new');
-            this.notifyListeners?.({ type: 'ORDER_FIRED', order: newOrder });
-            this.notify?.({ type: 'ORDER_FIRED', order: newOrder });
-            if (typeof window !== 'undefined') {
-              window.dispatchEvent(new CustomEvent('ORDER_FIRED', { detail: { order: newOrder } }));
-            }
-          }
-        })
-        .subscribe();
+        .subscribe((status) => {
+          console.log("Store Realtime subscription status:", status);
+        });
 
       // Also listen for venues table realtime changes for active_sessions
       if (!this._venuesRealtimeChannel) {
@@ -7179,4 +7202,7 @@ class ReactiveStore {
 }
 
 export const store = new ReactiveStore();
+if (typeof window !== 'undefined') {
+  window.store = store;
+}
 export default store;

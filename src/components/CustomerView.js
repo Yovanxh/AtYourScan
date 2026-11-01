@@ -1958,16 +1958,17 @@ export function renderCustomerView(container, store, options = {}) {
     if (submitUtrBtn) {
       submitUtrBtn.addEventListener('click', async (e) => {
         const orderId = e.currentTarget.dataset.orderId;
-        const tableNum = parseInt(e.currentTarget.dataset.tableNumber, 10);
-        const rawUtr = utrInput ? utrInput.value.trim() : '';
-        const sanitized = rawUtr.replace(/\D/g, '');
+        const currentTableNumber = parseInt(e.currentTarget.dataset.tableNumber, 10) || 4;
         const errBanner = container.querySelector('#utr-error-banner');
         const btnText = container.querySelector('#btn-utr-text');
         const btnSpinner = container.querySelector('#btn-utr-spinner');
 
-        if (sanitized.length !== 12) {
+        // Phase 1.1: Verify Outbound Mutation with strict 12-digit check
+        const cleanUtr = utrInput ? utrInput.value.trim() : '';
+        if (!/^\d{12}$/.test(cleanUtr)) {
+          alert("Please enter a valid 12-digit numeric UTR reference number.");
           if (errBanner) {
-            errBanner.textContent = 'Please enter a valid 12-digit numeric UTR/Ref number.';
+            errBanner.textContent = 'Please enter a valid 12-digit numeric UTR reference number.';
             errBanner.classList.remove('hidden');
           }
           return;
@@ -1986,41 +1987,155 @@ export function renderCustomerView(container, store, options = {}) {
           }
           try {
             localStorage.setItem('ays_table_session', sessionToken);
-            localStorage.setItem('ays_table_session_table', String(tableNum));
+            localStorage.setItem('ays_table_session_table', String(currentTableNumber));
           } catch {}
 
-          let orderPayloadOrId = orderId;
-          if (!orderId || orderId === 'null' || orderId === 'undefined' || orderId === '') {
-            const cartTotals = store.getCartTotals();
-            const activeCafeId = store.venue?.id || store.venue?.cafe_id || 'AYS-VENUE-01';
-            orderPayloadOrId = {
-              cafe_id: activeCafeId,
-              venue_id: activeCafeId,
-              table_number: tableNum,
-              table_id: tableNum,
-              table_label: `Table ${tableNum}`,
-              items: (store.cart?.items || []).map(ci => ({
-                id: ci.item.id,
-                dish_id: ci.item.id,
-                dish_name: ci.item.name,
-                name: ci.item.name,
-                quantity: ci.quantity,
-                price: ci.item.price,
-                notes: ci.customization || '',
-                customization: ci.customization || ''
-              })),
-              subtotal: cartTotals.subtotal,
-              taxes: cartTotals.gst,
-              service_charge: cartTotals.serviceCharge,
-              total_amount: cartTotals.total,
-              source: 'QR_DINE_IN',
-              payment_method: 'UPI',
-              session_token: sessionToken,
-              is_pay_later: false
-            };
+          const cartTotals = store.getCartTotals();
+          const targetVenueId = window.store?.venue?.id || store.venue?.id || 'cafe-first-way-cafe-hotc';
+          const cartItems = (store.cart?.items || []).map(ci => ({
+            id: ci.item.id,
+            dish_id: ci.item.id,
+            dish_name: ci.item.name,
+            name: ci.item.name,
+            quantity: ci.quantity,
+            price: ci.item.price,
+            notes: ci.customization || '',
+            customization: ci.customization || ''
+          }));
+          const cartTotal = cartTotals.total;
+
+          // Phase 1.2: Execute Database Write & Handle Errors Gracefully
+          const supabaseClient = window.store?.supabase || store?.supabase || supabase;
+          const activeOrderId = (orderId && orderId !== 'null' && orderId !== 'undefined' && orderId !== '') 
+            ? orderId 
+            : (typeof localStorage !== 'undefined' ? localStorage.getItem('ays_active_order_id') : null);
+
+          let persistedOrder = null;
+
+          if (supabaseClient && typeof supabaseClient.from === 'function') {
+            if (activeOrderId) {
+              // Order row exists (update pattern)
+              let { data, error } = await supabaseClient
+                .from('orders')
+                .update({
+                  utr_number: cleanUtr,
+                  payment_status: 'UTR_SUBMITTED',
+                  verification_status: 'PENDING_APPROVAL',
+                  status: 'AWAITING_VERIFICATION',
+                  updated_at: new Date().toISOString()
+                })
+                .eq('id', activeOrderId)
+                .select();
+
+              if (error) {
+                console.warn("Primary Supabase update error, falling back to schema-compliant update:", error);
+                const fallbackRes = await supabaseClient
+                  .from('orders')
+                  .update({
+                    status: 'New',
+                    verification_status: 'PENDING_APPROVAL',
+                    customer_name: `UTR: ${cleanUtr}`,
+                    session_token: sessionToken
+                  })
+                  .eq('id', activeOrderId)
+                  .select();
+
+                if (fallbackRes.error) {
+                  console.error("❌ Failed to save UTR submission to Supabase:", fallbackRes.error);
+                  alert("Payment submission failed. Please check connection and retry.");
+                  if (btnSpinner) btnSpinner.classList.add('hidden');
+                  if (btnText) btnText.textContent = 'Confirm Payment';
+                  return;
+                }
+                data = fallbackRes.data;
+              }
+
+              if (data && data[0]) {
+                persistedOrder = data[0];
+              }
+            } else {
+              // Creating a new order row upon confirmation (insert pattern)
+              let { data, error } = await supabaseClient
+                .from('orders')
+                .insert([{
+                  venue_id: targetVenueId,
+                  table_number: currentTableNumber,
+                  items: cartItems,
+                  total: cartTotal,
+                  utr_number: cleanUtr,
+                  payment_status: 'UTR_SUBMITTED',
+                  verification_status: 'PENDING_APPROVAL',
+                  status: 'AWAITING_VERIFICATION',
+                  created_at: new Date().toISOString()
+                }])
+                .select();
+
+              if (error) {
+                console.warn("Primary Supabase insert error, falling back to schema-compliant insert:", error);
+                const fallbackRes = await supabaseClient
+                  .from('orders')
+                  .insert([{
+                    venue_id: targetVenueId,
+                    cafe_id: targetVenueId,
+                    table_number: currentTableNumber,
+                    items: cartItems,
+                    total_amount: cartTotal,
+                    source: 'QR_DINE_IN',
+                    status: 'New',
+                    verification_status: 'PENDING_APPROVAL',
+                    customer_name: `UTR: ${cleanUtr}`,
+                    session_token: sessionToken,
+                    is_pay_later: false
+                  }])
+                  .select();
+
+                if (fallbackRes.error) {
+                  console.error("❌ Failed to save UTR submission to Supabase:", fallbackRes.error);
+                  alert("Payment submission failed. Please check connection and retry.");
+                  if (btnSpinner) btnSpinner.classList.add('hidden');
+                  if (btnText) btnText.textContent = 'Confirm Payment';
+                  return;
+                }
+                data = fallbackRes.data;
+              }
+
+              if (data && data[0]) {
+                persistedOrder = data[0];
+              }
+            }
           }
 
-          const verifyRes = await store.submitOrderUtrForAdminApproval(orderPayloadOrId, sanitized, sessionToken);
+          const localPayload = persistedOrder ? {
+            ...persistedOrder,
+            utr_number: cleanUtr,
+            payment_status: 'UTR_SUBMITTED',
+            verification_status: 'PENDING_APPROVAL',
+            status: 'AWAITING_VERIFICATION',
+            session_token: sessionToken
+          } : {
+            id: activeOrderId,
+            cafe_id: targetVenueId,
+            venue_id: targetVenueId,
+            table_number: currentTableNumber,
+            table_id: currentTableNumber,
+            table_label: `Table ${currentTableNumber}`,
+            items: cartItems,
+            subtotal: cartTotals.subtotal,
+            taxes: cartTotals.gst,
+            service_charge: cartTotals.serviceCharge,
+            total_amount: cartTotal,
+            total: cartTotal,
+            source: 'QR_DINE_IN',
+            payment_method: 'UPI',
+            payment_status: 'UTR_SUBMITTED',
+            verification_status: 'PENDING_APPROVAL',
+            status: 'AWAITING_VERIFICATION',
+            session_token: sessionToken,
+            utr_number: cleanUtr,
+            is_pay_later: false
+          };
+
+          const verifyRes = await store.submitOrderUtrForAdminApproval(localPayload, cleanUtr, sessionToken);
           if (!verifyRes.success) {
             if (btnSpinner) btnSpinner.classList.add('hidden');
             if (btnText) btnText.textContent = 'Confirm Payment';
@@ -2031,23 +2146,29 @@ export function renderCustomerView(container, store, options = {}) {
             return;
           }
 
-          lastPlacedOrder = verifyRes.order;
+          lastPlacedOrder = verifyRes.order || persistedOrder;
           try {
-            if (verifyRes.order?.id) {
-              localStorage.setItem('ays_active_order_id', verifyRes.order.id);
+            if (lastPlacedOrder?.id) {
+              localStorage.setItem('ays_active_order_id', lastPlacedOrder.id);
             }
           } catch {}
           store.clearCart();
 
-          // Transition to Admin Verification Waiting State
+          // Phase 1.3: Transition Customer View immediately to awaiting state
           const formSection = container.querySelector('#utr-form-section');
           const waitingCard = container.querySelector('#utr-waiting-card');
           const waitingUtrDisplay = container.querySelector('#waiting-utr-display');
           const rejectedCard = container.querySelector('#utr-rejected-card');
           if (rejectedCard) rejectedCard.classList.add('hidden');
           if (formSection) formSection.classList.add('hidden');
-          if (waitingUtrDisplay) waitingUtrDisplay.textContent = sanitized;
-          if (waitingCard) waitingCard.classList.remove('hidden');
+          if (waitingUtrDisplay) waitingUtrDisplay.textContent = cleanUtr;
+          if (waitingCard) {
+            const promptEl = waitingCard.querySelector('p');
+            if (promptEl) {
+              promptEl.textContent = 'Payment submitted! Waiting for counter verification...';
+            }
+            waitingCard.classList.remove('hidden');
+          }
         } catch (err) {
           if (btnSpinner) btnSpinner.classList.add('hidden');
           if (btnText) btnText.textContent = 'Confirm Payment';

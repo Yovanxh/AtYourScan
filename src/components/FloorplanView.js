@@ -91,7 +91,9 @@ export function renderFloorplanView(container, reactiveStore) {
 
   const onUtrSubmitted = (e) => {
     try {
-      new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
+      new Audio('/notification.mp3').play().catch(() => {
+        new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
+      });
     } catch (_) {}
     render();
   };
@@ -816,7 +818,33 @@ export function renderFloorplanView(container, reactiveStore) {
         } catch {}
       }
     });
+
+    // UTR Approval & Rejection Direct Handlers
+    container.querySelectorAll('[data-approve-utr]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const orderId = e.currentTarget.dataset.approveUtr;
+        if (!orderId) return;
+        btn.disabled = true;
+        btn.textContent = 'Verifying...';
+        await reactiveStore.adminApproveOrderUtr(orderId);
+        render();
+      });
+    });
+
+    container.querySelectorAll('[data-reject-utr]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const orderId = e.currentTarget.dataset.rejectUtr;
+        if (!orderId) return;
+        btn.disabled = true;
+        btn.textContent = 'Rejecting...';
+        await reactiveStore.adminRejectOrderUtr(orderId);
+        render();
+      });
+    });
   }
+
+  // Initialize Realtime orders listener for Admin Dashboard
+  initAdminRealtimeListener();
 
   // Periodic ticker to increment running tab durations dynamically without manual reload
   const timerInterval = setInterval(() => {
@@ -847,4 +875,165 @@ export function renderFloorplanView(container, reactiveStore) {
     if (toastTimer) clearTimeout(toastTimer);
     unsubscribe();
   };
+}
+
+let adminRealtimeChannel = null;
+
+/**
+ * Phase 2.1: Broaden Event Capture (event: '*')
+ * Listen to both INSERT and UPDATE mutations on public.orders table
+ */
+export function initAdminRealtimeListener() {
+  const client = window.store?.supabase || (typeof supabase !== 'undefined' ? supabase : null);
+  if (!client || typeof client.channel !== 'function') return null;
+
+  if (adminRealtimeChannel) {
+    return adminRealtimeChannel;
+  }
+
+  adminRealtimeChannel = client
+    .channel('admin-order-alerts')
+    .on(
+      'postgres_changes',
+      {
+        event: '*', // Listen to both INSERT and UPDATE
+        schema: 'public',
+        table: 'orders'
+      },
+      (payload) => {
+        const updatedOrder = payload.new;
+        if (!updatedOrder) return;
+
+        console.log("🔔 Realtime order event received in Admin:", updatedOrder);
+
+        const utrNumber = updatedOrder.utr_number || (updatedOrder.customer_name?.match(/\d{12}/)?.[0]);
+        const isPendingUtr = 
+          (updatedOrder.payment_status === 'UTR_SUBMITTED' || 
+           (updatedOrder.verification_status === 'PENDING_APPROVAL' && !updatedOrder.is_pay_later) ||
+           Boolean(utrNumber)) &&
+          updatedOrder.verification_status !== 'APPROVED' &&
+          updatedOrder.verification_status !== 'REJECTED';
+
+        // Detect pending UTR submissions requiring admin approval
+        if (
+          (updatedOrder.payment_status === 'UTR_SUBMITTED' && updatedOrder.verification_status === 'PENDING_APPROVAL') ||
+          isPendingUtr
+        ) {
+          triggerPaymentAlertBanner({
+            ...updatedOrder,
+            utr_number: utrNumber || updatedOrder.utr_number
+          });
+        }
+
+        // Synchronize order state in local store and refresh dashboard cards
+        syncOrderInState(updatedOrder);
+      }
+    )
+    .subscribe((status) => {
+      console.log("Admin Realtime subscription status:", status);
+    });
+
+  return adminRealtimeChannel;
+}
+
+/**
+ * Phase 2.2: Trigger Alert & Audio Banner
+ */
+export function triggerPaymentAlertBanner(order) {
+  if (!order) return;
+
+  // Plays the notification audio
+  try {
+    const audio = new Audio('/notification.mp3');
+    audio.play().catch(() => {
+      try {
+        new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
+      } catch (_) {}
+    });
+  } catch (_) {}
+  if (typeof window !== 'undefined' && window.store?.playSound) {
+    window.store.playSound('bell');
+  }
+
+  // Mounts the high-contrast verification card at the top of the viewport
+  const bannerId = `admin-alert-banner-${order.id}`;
+  let banner = document.getElementById(bannerId);
+  if (!banner) {
+    banner = document.createElement('div');
+    banner.id = bannerId;
+    document.body.appendChild(banner);
+  }
+
+  const tableNum = order.table_number || order.table_id || 'QR';
+  const total = Number(order.total || order.total_amount || 0).toFixed(2);
+  const utr = order.utr_number || (order.customer_name?.match(/\d{12}/)?.[0]) || 'Submitted';
+
+  banner.className = 'fixed top-4 left-4 right-4 z-[9999] max-w-4xl mx-auto bg-gradient-to-r from-amber-500 via-amber-600 to-orange-500 text-white p-4 px-6 rounded-2xl shadow-2xl flex flex-wrap items-center justify-between gap-4 border-2 border-amber-300 animate-in slide-in-from-top duration-300';
+  banner.innerHTML = `
+    <div class="flex items-center gap-3">
+      <span class="text-3xl animate-bounce">🔔</span>
+      <div>
+        <div class="font-black text-sm sm:text-base text-white">🔔 Table ${tableNum} Payment Submitted! Total: ₹${total} | UTR: ${utr}</div>
+        <div class="text-xs text-amber-100 font-semibold mt-0.5">Customer waiting for counter verification</div>
+      </div>
+    </div>
+    <div class="flex items-center gap-2">
+      <button id="banner-btn-verify-accept-${order.id}" class="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-black text-xs rounded-xl shadow-lg transition-all active:scale-95 cursor-pointer">
+        Verify & Accept Order
+      </button>
+      <button id="banner-btn-reject-utr-${order.id}" class="px-4 py-2.5 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-lg transition-all active:scale-95 cursor-pointer">
+        Reject / Invalid UTR
+      </button>
+    </div>
+  `;
+
+  banner.querySelector(`#banner-btn-verify-accept-${order.id}`)?.addEventListener('click', async () => {
+    banner.remove();
+    const st = window.store;
+    if (st && typeof st.adminApproveOrderUtr === 'function') {
+      await st.adminApproveOrderUtr(order.id);
+    }
+  });
+
+  banner.querySelector(`#banner-btn-reject-utr-${order.id}`)?.addEventListener('click', async () => {
+    banner.remove();
+    const st = window.store;
+    if (st && typeof st.adminRejectOrderUtr === 'function') {
+      await st.adminRejectOrderUtr(order.id);
+    }
+  });
+}
+
+/**
+ * Synchronize order state in local store and refresh dashboard cards
+ */
+export function syncOrderInState(updatedOrder) {
+  if (!updatedOrder) return;
+  const store = window.store;
+  if (!store || !Array.isArray(store.orders)) return;
+
+  const utr = updatedOrder.utr_number || (updatedOrder.customer_name?.match(/\d{12}/)?.[0]) || null;
+  const isUtrSubmitted = (updatedOrder.payment_status === 'UTR_SUBMITTED' ||
+    (updatedOrder.verification_status === 'PENDING_APPROVAL' && !updatedOrder.is_pay_later) ||
+    Boolean(utr));
+
+  const normalized = {
+    ...updatedOrder,
+    total: updatedOrder.total || updatedOrder.total_amount || 0,
+    total_amount: updatedOrder.total_amount || updatedOrder.total || 0,
+    utr_number: utr,
+    payment_status: isUtrSubmitted ? 'UTR_SUBMITTED' : (updatedOrder.verification_status === 'APPROVED' ? 'PAID' : (updatedOrder.payment_status || 'PENDING')),
+    status: isUtrSubmitted ? 'AWAITING_VERIFICATION' : (updatedOrder.status || 'New')
+  };
+
+  const existingIndex = store.orders.findIndex(o => o.id === updatedOrder.id);
+  if (existingIndex >= 0) {
+    store.orders[existingIndex] = { ...store.orders[existingIndex], ...normalized };
+  } else {
+    store.orders.unshift(normalized);
+  }
+  store.save('ays_orders', store.orders);
+  if (typeof store.notify === 'function') {
+    store.notify({ type: 'ORDER_UPDATED', order: normalized });
+  }
 }
