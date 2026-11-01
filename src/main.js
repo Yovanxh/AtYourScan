@@ -1761,6 +1761,8 @@ if (store && store.subscribe) {
       }
     }
     if (event?.type === 'ORDER_FIRED' && event.order && currentView !== 'customer' && typeof document !== 'undefined') {
+      const isInstantUnverified = (event.order.payment_method === 'UPI' || !event.order.is_pay_later) && event.order.verification_status !== 'APPROVED';
+      if (isInstantUnverified) return;
       const existingToast = document.getElementById('toast-incoming-order');
       if (!existingToast && document.body) {
         const order = event.order;

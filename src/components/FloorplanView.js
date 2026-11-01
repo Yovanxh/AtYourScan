@@ -113,8 +113,8 @@ export function renderFloorplanView(container, reactiveStore) {
 
     const pendingUtrOrders = (orders || []).filter(o => {
       const isUnverifiedInstant = (o.payment_method === 'UPI' || !o.is_pay_later) && o.verification_status !== 'APPROVED';
-      const isPending = o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || o.verification_status === 'PENDING_APPROVAL' || o.status === 'AWAITING_VERIFICATION';
-      return isUnverifiedInstant && isPending && o.status !== 'Completed' && o.status !== 'Cancelled';
+      const isUtrSubmitted = o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || (Boolean(o.utr_number) && String(o.utr_number).trim().length === 12);
+      return isUnverifiedInstant && isUtrSubmitted && o.status !== 'Completed' && o.status !== 'Cancelled';
     });
 
     const activePayLaterOrders = (orders || []).filter(o => {

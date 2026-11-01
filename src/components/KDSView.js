@@ -39,8 +39,8 @@ export function renderKDSView(container, store) {
     const currentVenueId = store.venue?.id || store.venue?.cafe_id;
     const pendingUtrOrders = (store.orders || []).filter(o => {
       const isUnverifiedInstant = (o.payment_method === 'UPI' || !o.is_pay_later) && o.verification_status !== 'APPROVED';
-      const isPending = o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || o.verification_status === 'PENDING_APPROVAL' || o.status === 'AWAITING_VERIFICATION';
-      return isUnverifiedInstant && isPending && o.status !== 'Completed' && o.status !== 'Cancelled';
+      const isUtrSubmitted = o.payment_status === 'UTR_SUBMITTED' || o.verification_status === 'PENDING_ADMIN_APPROVAL' || (Boolean(o.utr_number) && String(o.utr_number).trim().length === 12);
+      return isUnverifiedInstant && isUtrSubmitted && o.status !== 'Completed' && o.status !== 'Cancelled';
     });
 
     const activeOrders = (store.orders || []).filter(o => {
@@ -54,8 +54,8 @@ export function renderKDSView(container, store) {
       }
       // Filter out phantom/dummy tickets with empty items
       if (!Array.isArray(o.items) || o.items.length === 0) return false;
-      // Scope strictly to active venue
-      if (currentVenueId && o.venue_id && o.venue_id !== currentVenueId && o.cafe_id !== currentVenueId) {
+      // Scope to active venue if venue_id exists and differs
+      if (currentVenueId && o.venue_id && o.venue_id !== currentVenueId && o.cafe_id && o.cafe_id !== currentVenueId) {
         return false;
       }
       return true;
@@ -64,7 +64,7 @@ export function renderKDSView(container, store) {
     // Filter by channel
     const filteredOrders = activeOrders.filter(o => {
       if (filterSource === 'ALL') return true;
-      if (filterSource === 'QR_DINE_IN') return o.source === 'QR_DINE_IN';
+      if (filterSource === 'QR_DINE_IN') return o.source === 'QR_DINE_IN' || !o.source;
       if (filterSource === 'DELIVERY') return o.source === 'SWIGGY' || o.source === 'ZOMATO';
       if (filterSource === 'TAKEAWAY') return o.source === 'TAKEAWAY';
       return true;
@@ -73,7 +73,7 @@ export function renderKDSView(container, store) {
     // Compute aggregated kitchen prep tally (e.g. 5x Truffle Fries across tickets)
     const prepTally = {};
     activeOrders.forEach(o => {
-      if (o.status === 'New' || o.status === 'Preparing' || o.status === 'in_kitchen') {
+      if (o.status === 'New' || o.status === 'Preparing' || o.status === 'in_kitchen' || o.status === 'CONFIRMED') {
         (o.items || []).forEach(it => {
           const dishName = it.dish_name || it.name;
           if (dishName) {
@@ -225,7 +225,7 @@ export function renderKDSView(container, store) {
     }
 
     const isReady = order.status === 'Ready' || order.status === 'Served';
-    const isPreparing = order.status === 'Preparing';
+    const isPreparing = order.status === 'Preparing' || order.status === 'CONFIRMED';
     const isNew = order.status === 'New' || order.status === 'in_kitchen';
 
     return `

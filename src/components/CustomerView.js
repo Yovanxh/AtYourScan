@@ -298,9 +298,17 @@ export function renderCustomerView(container, store, options = {}) {
         && o.status !== 'Completed' && o.status !== 'Cancelled' && o.status !== 'Void'
     );
     if (lastPlacedOrder && lastPlacedOrder.status !== 'Completed' && lastPlacedOrder.status !== 'Cancelled' && lastPlacedOrder.status !== 'Void') {
+      const match = store.orders.find(o => o.id === lastPlacedOrder.id);
+      if (match) lastPlacedOrder = match;
       if (!tableOrders.find(o => o.id === lastPlacedOrder.id)) {
         tableOrders.unshift(lastPlacedOrder);
       }
+    }
+
+    // If order was approved by admin, automatically close payment modal and route to live order tracker
+    if (showUPIModal && lastPlacedOrder && lastPlacedOrder.verification_status === 'APPROVED') {
+      showUPIModal = false;
+      activeTab = 'track';
     }
 
     const activeOfferBanners = store.getActiveOfferBanners ? store.getActiveOfferBanners() : (store.offerBanners || []).filter(b => b.is_active);
@@ -395,7 +403,7 @@ export function renderCustomerView(container, store, options = {}) {
                       <span class="px-2 py-0.2 rounded-full text-[9px] font-bold bg-[#FFEBE4] text-[#FF7622]">Order #${tableOrders[0].id}</span>
                     </div>
                     <span class="text-[11px] text-zinc-300 font-medium">
-                      ${tableOrders[0].status === 'Ready' || tableOrders[0].status === 'Served' ? '🟢 Served' : (tableOrders[0].status === 'in_kitchen' || tableOrders[0].status === 'Preparing' ? '🔥 In Kitchen (Preparing)' : '🟡 Order Received')}
+                      ${tableOrders[0].status === 'Ready' || tableOrders[0].status === 'Served' ? '🟢 Served' : (tableOrders[0].status === 'in_kitchen' || tableOrders[0].status === 'Preparing' || tableOrders[0].status === 'CONFIRMED' ? '🔥 In Kitchen (Preparing)' : ((tableOrders[0].payment_method === 'UPI' || !tableOrders[0].is_pay_later) && tableOrders[0].verification_status !== 'APPROVED' ? '⏳ Awaiting Payment Verification' : '🟡 Order Received'))}
                     </span>
                   </div>
                 </div>
@@ -990,7 +998,7 @@ export function renderCustomerView(container, store, options = {}) {
         ${orders.map(order => {
           const isInstantUnverified = (order.payment_method === 'UPI' || !order.is_pay_later) && (order.verification_status !== 'APPROVED' || order.payment_status !== 'PAID');
           const isServed = !isInstantUnverified && (order.status === 'Ready' || order.status === 'Served' || order.status === 'Completed');
-          const isPreparing = !isInstantUnverified && (order.status === 'in_kitchen' || order.status === 'Preparing');
+          const isPreparing = !isInstantUnverified && (order.status === 'in_kitchen' || order.status === 'Preparing' || order.status === 'CONFIRMED');
           const isReceived = !isInstantUnverified && !isServed && !isPreparing;
 
           let statusPillClass = 'bg-amber-100 text-amber-900 border border-amber-300';

@@ -457,6 +457,10 @@ class ReactiveStore {
         if (event.data?.senderTabId === this.tabId) return;
         if (event.data?.type === 'ORDER_FIRED' && event.data.order) {
           this.handleIncomingOrderEvent(event.data.order);
+        } else if (event.data?.type === 'ORDER_UTR_SUBMITTED' && event.data.order) {
+          this.handleIncomingUtrSubmittedEvent(event.data.order, event.data.utrNumber);
+        } else if (event.data?.type === 'ORDER_APPROVED' && event.data.order) {
+          this.handleIncomingOrderApprovedEvent(event.data.order);
         } else if (event.data?.type === 'ORDER_STATUS_CHANGED') {
           this.handleIncomingStatusChangeEvent(event.data.orderId, event.data.status);
         } else if (event.data?.type === 'TABLE_CART_SYNC') {
@@ -948,8 +952,76 @@ class ReactiveStore {
       this.save('ays_tables', this.tables);
     }
 
-    this.playSound('order_new');
+    const isInstantUnverified = (incomingOrder.payment_method === 'UPI' || !incomingOrder.is_pay_later) && incomingOrder.verification_status !== 'APPROVED';
+    if (!isInstantUnverified) {
+      this.playSound('order_new');
+    }
     this.notify({ type: 'ORDER_FIRED', order: incomingOrder });
+  }
+
+  handleIncomingUtrSubmittedEvent(incomingOrder, utrNumber) {
+    if (!incomingOrder) return;
+    let order = this.orders.find(o => o.id === incomingOrder.id || o.order_id === incomingOrder.id);
+    if (order) {
+      order.utr_number = utrNumber || incomingOrder.utr_number;
+      order.payment_status = 'UTR_SUBMITTED';
+      order.verification_status = 'PENDING_ADMIN_APPROVAL';
+      order.status = 'AWAITING_VERIFICATION';
+      order.updated_at = new Date().toISOString();
+    } else {
+      order = {
+        ...incomingOrder,
+        utr_number: utrNumber || incomingOrder.utr_number,
+        payment_status: 'UTR_SUBMITTED',
+        verification_status: 'PENDING_ADMIN_APPROVAL',
+        status: 'AWAITING_VERIFICATION'
+      };
+      this.orders.unshift(order);
+    }
+    this.save('ays_orders', this.orders);
+    this.playSound('bell');
+    this.notify({ type: 'ORDER_UTR_SUBMITTED', order, utrNumber: utrNumber || order.utr_number });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ORDER_UTR_SUBMITTED', { detail: { order, utrNumber: utrNumber || order.utr_number } }));
+    }
+  }
+
+  handleIncomingOrderApprovedEvent(approvedOrder) {
+    if (!approvedOrder) return;
+    let order = this.orders.find(o => o.id === approvedOrder.id || o.order_id === approvedOrder.id);
+    if (order) {
+      order.payment_status = 'PAID';
+      order.verification_status = 'APPROVED';
+      order.status = 'Preparing';
+      order.is_locked = false;
+      order.updated_at = new Date().toISOString();
+    } else {
+      order = {
+        ...approvedOrder,
+        payment_status: 'PAID',
+        verification_status: 'APPROVED',
+        status: 'Preparing',
+        is_locked: false
+      };
+      this.orders.unshift(order);
+    }
+    this.save('ays_orders', this.orders);
+
+    const tbl = this.tables.find(t => t.table_number === order.table_number);
+    if (tbl) {
+      tbl.status = 'Occupied / In Kitchen';
+      tbl.active_order_id = order.id;
+      this.save('ays_tables', this.tables);
+    }
+
+    this.playSound('order_new');
+    this.notify({ type: 'ORDER_APPROVED', order });
+    this.notify({ type: 'ORDER_STATUS_CHANGED', orderId: order.id, status: 'Preparing' });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('ORDER_APPROVED', { detail: { order } }));
+      window.dispatchEvent(new CustomEvent('ORDER_PAID', { detail: { order, utrNumber: order.utr_number } }));
+      window.dispatchEvent(new CustomEvent('ORDER_STATUS_CHANGED', { detail: { orderId: order.id, status: 'Preparing' } }));
+    }
   }
 
   handleIncomingStatusChangeEvent(orderId, status) {
@@ -1172,8 +1244,12 @@ class ReactiveStore {
       this.save('ays_tables', this.tables);
     }
 
-    // Play kitchen crystal chime
-    this.playSound('order_new');
+    const isInstantUnverified = (newOrder.payment_method === 'UPI' || !newOrder.is_pay_later) && newOrder.verification_status !== 'APPROVED';
+
+    // Play kitchen crystal chime only for released tickets (Pay Later or Pre-approved)
+    if (!isInstantUnverified) {
+      this.playSound('order_new');
+    }
 
     // Realtime Broadcast across active browser channel (strictly scoped to current venue)
     if (this.broadcastChannel && typeof this.broadcastChannel.postMessage === 'function') {
@@ -2751,6 +2827,23 @@ class ReactiveStore {
       }
     }
 
+    // Play chime to alert counter admin that UTR was submitted
+    this.playSound('bell');
+
+    if (this.broadcastChannel && typeof this.broadcastChannel.postMessage === 'function') {
+      try {
+        this.broadcastChannel.postMessage({
+          type: 'ORDER_UTR_SUBMITTED',
+          order: targetOrder,
+          utrNumber: utr,
+          senderTabId: this.tabId,
+          venue_id: this.venue?.id || 'cafe-first-way-cafe-hotc'
+        });
+      } catch (e) {
+        console.warn('BroadcastChannel postMessage error:', e);
+      }
+    }
+
     this.notifyListeners?.({ type: 'ORDER_UTR_SUBMITTED', order: targetOrder, utrNumber: utr });
     this.notify?.({ type: 'ORDER_UTR_SUBMITTED', order: targetOrder, utrNumber: utr });
     if (typeof window !== 'undefined') {
@@ -2776,16 +2869,24 @@ class ReactiveStore {
 
     order.payment_status = 'PAID';
     order.verification_status = 'APPROVED';
-    order.status = 'CONFIRMED';
+    order.status = 'Preparing';
     order.is_locked = false;
     order.updated_at = new Date().toISOString();
     this.save('ays_orders', this.orders);
+
+    const tbl = this.tables.find(t => t.table_number === order.table_number);
+    if (tbl) {
+      tbl.status = 'Occupied / In Kitchen';
+      tbl.active_order_id = order.id;
+      this.save('ays_tables', this.tables);
+    }
 
     if (client) {
       try {
         await client.from('orders').update({
           status: 'Preparing',
           verification_status: 'APPROVED',
+          payment_status: 'PAID',
           is_locked: false,
           updated_at: new Date().toISOString()
         }).eq('id', order.id);
@@ -2794,13 +2895,38 @@ class ReactiveStore {
       }
     }
 
+    // Play kitchen crystal chime to announce verified order dispatched to kitchen
+    this.playSound('order_new');
+
+    // Broadcast across channels to notify customer and KDS
+    if (this.broadcastChannel && typeof this.broadcastChannel.postMessage === 'function') {
+      try {
+        this.broadcastChannel.postMessage({
+          type: 'ORDER_APPROVED',
+          order,
+          senderTabId: this.tabId,
+          venue_id: this.venue?.id || 'cafe-first-way-cafe-hotc'
+        });
+        this.broadcastChannel.postMessage({
+          type: 'ORDER_STATUS_CHANGED',
+          orderId: order.id,
+          status: 'Preparing',
+          senderTabId: this.tabId,
+          venue_id: this.venue?.id || 'cafe-first-way-cafe-hotc'
+        });
+      } catch (e) {}
+    }
+
     this.notifyListeners?.({ type: 'ORDER_APPROVED', order });
     this.notifyListeners?.({ type: 'ORDER_PAID', order, utrNumber: order.utr_number });
+    this.notifyListeners?.({ type: 'ORDER_STATUS_CHANGED', orderId: order.id, status: 'Preparing' });
     this.notify?.({ type: 'ORDER_APPROVED', order });
     this.notify?.({ type: 'ORDER_PAID', order, utrNumber: order.utr_number });
+    this.notify?.({ type: 'ORDER_STATUS_CHANGED', orderId: order.id, status: 'Preparing' });
     if (typeof window !== 'undefined') {
       window.dispatchEvent(new CustomEvent('ORDER_APPROVED', { detail: { order } }));
       window.dispatchEvent(new CustomEvent('ORDER_PAID', { detail: { order, utrNumber: order.utr_number } }));
+      window.dispatchEvent(new CustomEvent('ORDER_STATUS_CHANGED', { detail: { orderId: order.id, status: 'Preparing' } }));
     }
 
     return { success: true, order };
