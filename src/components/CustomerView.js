@@ -36,7 +36,7 @@ export function renderCustomerView(container, store, options = {}) {
       urlCafe = p.get('cafe') || p.get('cafe_id') || p.get('cafeId') || p.get('venue');
 
       if (!urlCafe) {
-        const pathVenueMatch = window.location.pathname.match(/\/v\/([^\/]+)/);
+        const pathVenueMatch = window.location.pathname && window.location.pathname.match(/\/v\/([^\/]+)/);
         if (pathVenueMatch) {
           urlCafe = decodeURIComponent(pathVenueMatch[1]);
         }
@@ -135,7 +135,7 @@ export function renderCustomerView(container, store, options = {}) {
         const parsed = parseInt(p.get('table'), 10);
         if (!isNaN(parsed)) tableNumber = parsed;
       } else {
-        const m = window.location.pathname.match(/\/t\/(\d+)/);
+        const m = window.location.pathname && window.location.pathname.match(/\/t\/(\d+)/);
         if (m) {
           const parsed = parseInt(m[1], 10);
           if (!isNaN(parsed)) tableNumber = parsed;
@@ -282,7 +282,22 @@ export function renderCustomerView(container, store, options = {}) {
       return;
     }
 
-    // CASE C: Table is vacant/free -> Render standard ordering menu
+    // CASE C: If current diner has an active order on this table, display order status
+    const activeOrderForTable = (store.orders || []).find(
+      o => (o.id === myActiveOrderId || o.id === lastPlacedOrder?.id || (o.table_number === tableNumber && o.session_token === myToken))
+        && o.status !== 'Completed' && o.status !== 'Cancelled' && o.status !== 'Void'
+    ) || (lastPlacedOrder && (lastPlacedOrder.table_number === tableNumber) && lastPlacedOrder.status !== 'Completed' && lastPlacedOrder.status !== 'Cancelled' ? lastPlacedOrder : null);
+
+    if (activeOrderForTable) {
+      if (activeTab === 'add_dishes') {
+        renderMenu(venue);
+      } else {
+        renderActiveOrderView(activeOrderForTable.id);
+      }
+      return;
+    }
+
+    // CASE D: Table is vacant/free -> Render standard ordering menu
     renderMenu(venue);
   }
 
@@ -327,6 +342,11 @@ export function renderCustomerView(container, store, options = {}) {
       activeOrder = lastPlacedOrder;
     }
 
+    // Dynamic UPI verification page should remain closed while displaying active order status
+    if (activeOrder && (activeOrder.verification_status === 'APPROVED' || activeOrder.payment_status === 'PAID' || activeOrder.payment_status === 'UTR_SUBMITTED' || activeOrder.verification_status === 'PENDING_APPROVAL')) {
+      showUPIModal = false;
+    }
+
     const tNum = activeOrder?.table_number || activeOrder?.table_id || tableNumber || '?';
     const ordId = activeOrder?.id || orderId || 'LIVE';
     const shortOrdId = String(ordId).length > 8 ? String(ordId).slice(-6) : ordId;
@@ -338,13 +358,15 @@ export function renderCustomerView(container, store, options = {}) {
     const isInstantUnverified = isInstantPay && (activeOrder?.verification_status !== 'APPROVED' || activeOrder?.payment_status !== 'PAID');
 
     let statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-blue-100 text-blue-800 border border-blue-300">🟡 ORDER RECEIVED</span>';
-    if (isInstantUnverified) {
+    if (activeOrder?.verification_status === 'REJECTED' || activeOrder?.payment_status === 'FAILED') {
+      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-rose-100 text-rose-800 border border-rose-300">❌ VERIFICATION FAILED</span>';
+    } else if (isInstantUnverified) {
       statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">⏳ AWAITING VERIFICATION</span>';
     } else if (stUpper === 'READY' || stUpper === 'SERVED') {
       statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">✅ READY</span>';
     } else if (stUpper === 'COMPLETED') {
       statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-slate-100 text-slate-800 border border-slate-300">🍽️ COMPLETED</span>';
-    } else if (stUpper === 'PREPARING' || stUpper === 'IN_KITCHEN' || stUpper === 'CONFIRMED') {
+    } else if (stUpper === 'PREPARING' || stUpper === 'IN_KITCHEN' || stUpper === 'CONFIRMED' || activeOrder?.verification_status === 'APPROVED' || activeOrder?.payment_status === 'PAID') {
       statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-orange-100 text-[#FF7622] border border-orange-300 animate-pulse">🔥 PREPARING</span>';
     }
 
@@ -410,18 +432,31 @@ export function renderCustomerView(container, store, options = {}) {
 
             <!-- Instant Pay vs Pay Later specifics -->
             ${isInstantPay ? `
-              ${isInstantUnverified ? `
-                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs space-y-2 text-amber-900">
+              ${(activeOrder?.verification_status === 'REJECTED' || activeOrder?.payment_status === 'FAILED') ? `
+                <div class="bg-rose-50 border border-rose-300 rounded-2xl p-4 text-xs space-y-2.5 text-rose-900 animate-in fade-in duration-300">
+                  <div class="flex items-center justify-between font-bold">
+                    <span class="flex items-center gap-1.5"><span>❌</span> Payment Not Verified</span>
+                    <span class="font-mono text-[11px] bg-rose-200 text-rose-900 px-2 py-0.5 rounded-md">UTR: ${activeOrder?.utr_number || 'INVALID'}</span>
+                  </div>
+                  <p class="text-[11px] text-rose-800 leading-relaxed font-medium">
+                    Transaction reference could not be verified by counter staff. Please re-enter your 12-digit UTR or pay at the counter.
+                  </p>
+                  <button id="btn-active-retry-utr" class="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl shadow-md transition-all cursor-pointer">
+                    ✏️ Re-enter 12-digit UTR
+                  </button>
+                </div>
+              ` : isInstantUnverified ? `
+                <div class="bg-amber-50 border border-amber-200 rounded-2xl p-4 text-xs space-y-2 text-amber-900 animate-in fade-in duration-300">
                   <div class="flex items-center justify-between font-bold">
                     <span class="flex items-center gap-1.5"><span>⏳</span> Verifying Transaction</span>
                     <span class="font-mono text-[11px] bg-amber-200 text-amber-900 px-2 py-0.5 rounded-md">UTR: ${activeOrder?.utr_number || 'SUBMITTED'}</span>
                   </div>
-                  <p class="text-[11px] text-amber-800 leading-relaxed">
+                  <p class="text-[11px] text-amber-800 leading-relaxed font-medium">
                     Verifying your transaction with the counter. Please wait a moment while staff confirms your payment...
                   </p>
                 </div>
               ` : `
-                <div class="bg-[#EBF7F2] border border-emerald-200 rounded-2xl p-4 text-xs space-y-1.5 text-emerald-900">
+                <div class="bg-[#EBF7F2] border border-emerald-200 rounded-2xl p-4 text-xs space-y-1.5 text-emerald-900 animate-in fade-in duration-300">
                   <div class="flex items-center justify-between font-bold">
                     <span class="flex items-center gap-1.5"><span>✅</span> Paid via UPI</span>
                     <span class="font-mono text-[11px] bg-emerald-600 text-white px-2 py-0.5 rounded-md">UTR: ${activeOrder?.utr_number || 'VERIFIED'}</span>
@@ -482,8 +517,8 @@ export function renderCustomerView(container, store, options = {}) {
           </div>
         </main>
 
-        <!-- UPI Modal if open -->
-        ${showUPIModal && activeOrder ? renderUPIModal(activeOrder, venue) : ''}
+        <!-- UPI Modal if open (Only shown if explicitly requested for payment or re-entry) -->
+        ${showUPIModal && activeOrder && (!isInstantPay || activeOrder.verification_status === 'REJECTED') ? renderUPIModal(activeOrder, venue) : ''}
 
       </div>
     `;
@@ -498,6 +533,11 @@ export function renderCustomerView(container, store, options = {}) {
       render();
     });
 
+    container.querySelector('#btn-active-retry-utr')?.addEventListener('click', () => {
+      showUPIModal = true;
+      render();
+    });
+
     container.querySelector('#btn-active-pay-bill')?.addEventListener('click', () => {
       if (activeOrder) {
         lastPlacedOrder = activeOrder;
@@ -506,7 +546,7 @@ export function renderCustomerView(container, store, options = {}) {
       }
     });
 
-    if (showUPIModal && activeOrder) {
+    if (showUPIModal && activeOrder && (!isInstantPay || activeOrder.verification_status === 'REJECTED')) {
       bindUPIModalEvents(activeOrder);
     }
   }
@@ -555,8 +595,8 @@ export function renderCustomerView(container, store, options = {}) {
       }
     }
 
-    // If order was approved by admin, automatically close payment modal and route to live order tracker
-    if (showUPIModal && lastPlacedOrder && lastPlacedOrder.verification_status === 'APPROVED') {
+    // If order was submitted or approved by admin, automatically close payment modal and route to live order tracker
+    if (showUPIModal && lastPlacedOrder && (lastPlacedOrder.verification_status === 'APPROVED' || lastPlacedOrder.payment_status === 'UTR_SUBMITTED' || lastPlacedOrder.verification_status === 'PENDING_APPROVAL')) {
       showUPIModal = false;
       activeTab = 'track';
     }
@@ -807,8 +847,8 @@ export function renderCustomerView(container, store, options = {}) {
         <!-- Customizer Modal -->
         ${customizerItem ? renderCustomizerModal(customizerItem, customInstructions) : ''}
 
-        <!-- UPI Instant Pay Modal -->
-        ${showUPIModal ? renderUPIModal(lastPlacedOrder || {
+        <!-- UPI Instant Pay Modal (Strictly closed once payment is submitted/confirmed) -->
+        ${showUPIModal && (!lastPlacedOrder || (lastPlacedOrder.verification_status !== 'APPROVED' && lastPlacedOrder.payment_status !== 'UTR_SUBMITTED' && lastPlacedOrder.verification_status !== 'PENDING_APPROVAL')) ? renderUPIModal(lastPlacedOrder || {
           id: null,
           total_amount: totals.total,
           bill_amount: totals.total,
@@ -2154,21 +2194,10 @@ export function renderCustomerView(container, store, options = {}) {
           } catch {}
           store.clearCart();
 
-          // Phase 1.3: Transition Customer View immediately to awaiting state
-          const formSection = container.querySelector('#utr-form-section');
-          const waitingCard = container.querySelector('#utr-waiting-card');
-          const waitingUtrDisplay = container.querySelector('#waiting-utr-display');
-          const rejectedCard = container.querySelector('#utr-rejected-card');
-          if (rejectedCard) rejectedCard.classList.add('hidden');
-          if (formSection) formSection.classList.add('hidden');
-          if (waitingUtrDisplay) waitingUtrDisplay.textContent = cleanUtr;
-          if (waitingCard) {
-            const promptEl = waitingCard.querySelector('p');
-            if (promptEl) {
-              promptEl.textContent = 'Payment submitted! Waiting for counter verification...';
-            }
-            waitingCard.classList.remove('hidden');
-          }
+          // Close the dynamic UPI verification page immediately and display only the order status
+          showUPIModal = false;
+          activeTab = 'track';
+          render();
         } catch (err) {
           if (btnSpinner) btnSpinner.classList.add('hidden');
           if (btnText) btnText.textContent = 'Confirm Payment';
@@ -2381,7 +2410,7 @@ export function renderCustomerView(container, store, options = {}) {
       const p = new URLSearchParams(window.location.search);
       const q = p.get('cafe') || p.get('cafe_id') || p.get('cafeId') || p.get('venue');
       if (q) return q;
-      const pathMatch = window.location.pathname.match(/\/v\/([^\/]+)/);
+      const pathMatch = window.location.pathname && window.location.pathname.match(/\/v\/([^\/]+)/);
       if (pathMatch) return decodeURIComponent(pathMatch[1]);
     }
     return store.venue?.id || 'cafe-first-way-cafe-hotc';
@@ -2412,6 +2441,7 @@ export function renderCustomerView(container, store, options = {}) {
     if (lastPlacedOrder && e.detail?.orderId === lastPlacedOrder.id) {
       lastPlacedOrder.status = e.detail.status;
     }
+    showUPIModal = false;
     render();
   };
 
