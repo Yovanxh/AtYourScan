@@ -3277,24 +3277,31 @@ class ReactiveStore {
           console.log("🔔 Realtime order event received in Store:", payload.eventType, updated);
 
           const utrNumber = updated.utr_number || (updated.customer_name?.match(/\d{12}/)?.[0]) || null;
-          const isPendingUtr = 
+          const isApproved = updated.verification_status === 'APPROVED' || updated.payment_status === 'PAID';
+          const isRejected = updated.verification_status === 'REJECTED' || updated.payment_status === 'FAILED';
+          const isPendingUtr = !isApproved && !isRejected &&
             (updated.payment_status === 'UTR_SUBMITTED' || 
              (updated.verification_status === 'PENDING_APPROVAL' && !updated.is_pay_later) ||
-             Boolean(utrNumber)) &&
-            updated.verification_status !== 'APPROVED' &&
-            updated.verification_status !== 'REJECTED';
+             Boolean(utrNumber));
+
+          const existingIndex = this.orders.findIndex(o => o.id === updated.id);
+          const existing = existingIndex >= 0 ? this.orders[existingIndex] : null;
+          const mergedItems = (updated.items && Array.isArray(updated.items) && updated.items.length > 0)
+            ? updated.items
+            : (existing?.items && existing.items.length > 0 ? existing.items : []);
 
           const normalized = {
             ...updated,
+            items: mergedItems,
             utr_number: utrNumber || updated.utr_number,
-            payment_status: isPendingUtr ? 'UTR_SUBMITTED' : (updated.verification_status === 'APPROVED' ? 'PAID' : (updated.payment_status || 'PENDING')),
-            total: updated.total || updated.total_amount,
-            total_amount: updated.total_amount || updated.total
+            payment_status: isPendingUtr ? 'UTR_SUBMITTED' : (isApproved ? 'PAID' : (updated.payment_status || existing?.payment_status || 'PENDING')),
+            status: isPendingUtr ? 'AWAITING_VERIFICATION' : (isApproved ? (updated.status === 'AWAITING_VERIFICATION' ? 'Preparing' : (updated.status || 'Preparing')) : (updated.status || existing?.status || 'New')),
+            total: updated.total || updated.total_amount || existing?.total || 0,
+            total_amount: updated.total_amount || updated.total || existing?.total_amount || 0
           };
 
-          const existingIndex = this.orders.findIndex(o => o.id === updated.id);
           if (existingIndex >= 0) {
-            this.orders[existingIndex] = { ...this.orders[existingIndex], ...normalized };
+            this.orders[existingIndex] = { ...existing, ...normalized, items: mergedItems };
           } else {
             this.orders.unshift(normalized);
           }

@@ -1013,22 +1013,32 @@ export function syncOrderInState(updatedOrder) {
   if (!store || !Array.isArray(store.orders)) return;
 
   const utr = updatedOrder.utr_number || (updatedOrder.customer_name?.match(/\d{12}/)?.[0]) || null;
-  const isUtrSubmitted = (updatedOrder.payment_status === 'UTR_SUBMITTED' ||
+  const isApproved = updatedOrder.verification_status === 'APPROVED' || updatedOrder.payment_status === 'PAID';
+  const isRejected = updatedOrder.verification_status === 'REJECTED' || updatedOrder.payment_status === 'FAILED';
+  const isUtrSubmitted = !isApproved && !isRejected && (
+    updatedOrder.payment_status === 'UTR_SUBMITTED' ||
     (updatedOrder.verification_status === 'PENDING_APPROVAL' && !updatedOrder.is_pay_later) ||
-    Boolean(utr));
+    Boolean(utr)
+  );
+
+  const existingIndex = store.orders.findIndex(o => o.id === updatedOrder.id);
+  const existing = existingIndex >= 0 ? store.orders[existingIndex] : null;
+  const mergedItems = (updatedOrder.items && Array.isArray(updatedOrder.items) && updatedOrder.items.length > 0)
+    ? updatedOrder.items
+    : (existing?.items && existing.items.length > 0 ? existing.items : []);
 
   const normalized = {
     ...updatedOrder,
-    total: updatedOrder.total || updatedOrder.total_amount || 0,
-    total_amount: updatedOrder.total_amount || updatedOrder.total || 0,
+    items: mergedItems,
+    total: updatedOrder.total || updatedOrder.total_amount || existing?.total || 0,
+    total_amount: updatedOrder.total_amount || updatedOrder.total || existing?.total_amount || 0,
     utr_number: utr,
-    payment_status: isUtrSubmitted ? 'UTR_SUBMITTED' : (updatedOrder.verification_status === 'APPROVED' ? 'PAID' : (updatedOrder.payment_status || 'PENDING')),
-    status: isUtrSubmitted ? 'AWAITING_VERIFICATION' : (updatedOrder.status || 'New')
+    payment_status: isUtrSubmitted ? 'UTR_SUBMITTED' : (isApproved ? 'PAID' : (updatedOrder.payment_status || existing?.payment_status || 'PENDING')),
+    status: isUtrSubmitted ? 'AWAITING_VERIFICATION' : (isApproved ? (updatedOrder.status === 'AWAITING_VERIFICATION' ? 'Preparing' : (updatedOrder.status || 'Preparing')) : (updatedOrder.status || existing?.status || 'New'))
   };
 
-  const existingIndex = store.orders.findIndex(o => o.id === updatedOrder.id);
   if (existingIndex >= 0) {
-    store.orders[existingIndex] = { ...store.orders[existingIndex], ...normalized };
+    store.orders[existingIndex] = { ...existing, ...normalized, items: mergedItems };
   } else {
     store.orders.unshift(normalized);
   }

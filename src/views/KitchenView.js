@@ -115,22 +115,50 @@ export class KitchenView {
 
   // 2. Universal Ticket Card Component & Preparation Pipeline
   renderTicketCard(order) {
-    const itemsHtml = (order.items || []).map(item => `
+    let items = (order.items && Array.isArray(order.items) && order.items.length > 0) ? order.items : [];
+    if (items.length === 0 && window.store?.orders) {
+      const match = window.store.orders.find(o => 
+        (o.id === order.id || o.table_number === order.table_number || String(o.table_number) === String(order.table_number)) && 
+        o.items && o.items.length > 0
+      );
+      if (match) items = match.items;
+    }
+
+    const itemsHtml = items.length > 0 ? items.map(item => `
       <div class="flex justify-between py-1 text-sm border-b border-gray-100">
         <span class="font-medium text-gray-800">${item.quantity || 1}x ${item.name || item.dish_name || 'Item'}</span>
         ${item.notes ? `<span class="text-xs text-amber-600 block">${item.notes}</span>` : ''}
       </div>
-    `).join('');
+    `).join('') : `
+      <div class="flex justify-between py-1.5 text-xs text-gray-600 border-b border-gray-100 font-medium">
+        <span>Table Order (${order.table_number ? `Table ${order.table_number}` : 'Dine-In'})</span>
+        <span class="font-mono text-gray-800">₹${Number(order.total_amount || order.total || 0).toFixed(2)}</span>
+      </div>
+    `;
 
     // Dynamic Status Actions
     let actionButton = '';
     const statusUpper = String(order.status || '').toUpperCase();
-    if (statusUpper === 'CONFIRMED' || !order.status || statusUpper === 'PAID' || statusUpper === 'NEW') {
-      actionButton = `<button class="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-sm transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'PREPARING')">🔥 Start Cooking</button>`;
-    } else if (statusUpper === 'PREPARING' || statusUpper === 'IN_KITCHEN') {
+    const isApprovedOrPaid = order.verification_status === 'APPROVED' || order.payment_status === 'PAID';
+
+    if (!isApprovedOrPaid && (order.verification_status === 'PENDING_APPROVAL' || order.payment_status === 'UTR_SUBMITTED')) {
+      actionButton = `
+        <div class="space-y-1.5">
+          <div class="text-[11px] font-bold text-amber-700 bg-amber-50 border border-amber-200 rounded-lg p-1.5 text-center font-mono">
+            UTR: ${order.utr_number || 'Awaiting Approval'}
+          </div>
+          <button class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-black rounded-lg text-xs cursor-pointer shadow-sm transition-all active:scale-98" data-approve-utr="${order.id}">
+            ✓ Verify & Send to Kitchen
+          </button>
+        </div>
+      `;
+    } else if (statusUpper === 'PREPARING' || statusUpper === 'IN_KITCHEN' || statusUpper === 'COOKING') {
       actionButton = `<button class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-sm transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'READY')">✅ Mark Ready to Serve</button>`;
     } else if (statusUpper === 'READY') {
       actionButton = `<button class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-sm transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'COMPLETED')">🍽️ Handover / Complete</button>`;
+    } else {
+      // Default for any active confirmed/paid/new ticket
+      actionButton = `<button class="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-sm transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'PREPARING')">🔥 Start Cooking</button>`;
     }
 
     return `

@@ -343,9 +343,9 @@ export function renderCustomerView(container, store, options = {}) {
     }
 
     // Dynamic UPI verification page should remain closed while displaying active order status
-    if (activeOrder && (activeOrder.verification_status === 'APPROVED' || activeOrder.payment_status === 'PAID' || activeOrder.payment_status === 'UTR_SUBMITTED' || activeOrder.verification_status === 'PENDING_APPROVAL')) {
-      showUPIModal = false;
-    }
+    showUPIModal = false;
+    const existingUpiModal = container.querySelector('#dynamic-upi-modal-overlay');
+    if (existingUpiModal) existingUpiModal.remove();
 
     const tNum = activeOrder?.table_number || activeOrder?.table_id || tableNumber || '?';
     const ordId = activeOrder?.id || orderId || 'LIVE';
@@ -370,7 +370,29 @@ export function renderCustomerView(container, store, options = {}) {
       statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-orange-100 text-[#FF7622] border border-orange-300 animate-pulse">🔥 PREPARING</span>';
     }
 
-    const items = activeOrder?.items || [];
+    let items = (activeOrder?.items && Array.isArray(activeOrder.items) && activeOrder.items.length > 0) ? activeOrder.items : [];
+    if (items.length === 0) {
+      const match = (store.orders || []).find(o => 
+        (o.id === ordId || o.table_number === tNum || String(o.table_number) === String(tNum)) &&
+        o.items && Array.isArray(o.items) && o.items.length > 0
+      );
+      if (match) items = match.items;
+    }
+    if (items.length === 0 && store.cart?.items && store.cart.items.length > 0) {
+      items = store.cart.items.map(ci => ({
+        name: ci.item.name,
+        quantity: ci.quantity,
+        price: ci.item.price,
+        notes: ci.customization || ''
+      }));
+    }
+    if (items.length === 0 && typeof localStorage !== 'undefined') {
+      try {
+        const cached = JSON.parse(localStorage.getItem('ays_last_cart_items') || '[]');
+        if (Array.isArray(cached) && cached.length > 0) items = cached;
+      } catch {}
+    }
+
     const itemsHtml = items.length > 0 ? items.map(it => `
       <div class="py-2.5 flex justify-between items-start border-b border-slate-100 last:border-0 text-xs">
         <div>
@@ -379,7 +401,15 @@ export function renderCustomerView(container, store, options = {}) {
         </div>
         <span class="font-semibold text-[#646982]">₹${((Number(it.price) || 0) * (Number(it.quantity) || 1)).toFixed(2)}</span>
       </div>
-    `).join('') : '<div class="py-3 text-xs text-[#A0A5BA] text-center">Items being loaded...</div>';
+    `).join('') : `
+      <div class="py-2.5 flex justify-between items-center text-xs">
+        <div>
+          <span class="font-bold text-[#181C2E]">Kitchen Order (${activeOrder?.table_label || `Table ${tNum}`})</span>
+          <p class="text-[11px] text-[#059C6A] font-medium">Order Fired • Kitchen cooking</p>
+        </div>
+        <span class="font-semibold text-[#646982]">₹${Number(activeOrder?.total_amount || activeOrder?.bill_amount || activeOrder?.total || 0).toFixed(2)}</span>
+      </div>
+    `;
 
     container.innerHTML = `
       <div class="customer-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col font-sans pb-16 select-none">
@@ -518,7 +548,7 @@ export function renderCustomerView(container, store, options = {}) {
         </main>
 
         <!-- UPI Modal if open (Only shown if explicitly requested for payment or re-entry) -->
-        ${showUPIModal && activeOrder && (!isInstantPay || activeOrder.verification_status === 'REJECTED') ? renderUPIModal(activeOrder, venue) : ''}
+        ${showUPIModal && activeOrder && activeOrder.verification_status === 'REJECTED' ? renderUPIModal(activeOrder, venue) : ''}
 
       </div>
     `;
@@ -546,7 +576,7 @@ export function renderCustomerView(container, store, options = {}) {
       }
     });
 
-    if (showUPIModal && activeOrder && (!isInstantPay || activeOrder.verification_status === 'REJECTED')) {
+    if (showUPIModal && activeOrder && activeOrder.verification_status === 'REJECTED') {
       bindUPIModalEvents(activeOrder);
     }
   }
@@ -1432,7 +1462,7 @@ export function renderCustomerView(container, store, options = {}) {
     const formattedAmount = Number(totalAmount).toLocaleString('en-IN', { minimumFractionDigits: 2 });
 
     return `
-      <div class="fixed inset-0 z-50 bg-[#181C2E]/70 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
+      <div id="dynamic-upi-modal-overlay" class="fixed inset-0 z-50 bg-[#181C2E]/70 backdrop-blur-md flex items-center justify-center p-4 overflow-y-auto">
         <div class="bg-white rounded-[32px] max-w-sm w-full p-6 text-center space-y-4 shadow-2xl relative overflow-hidden border border-slate-100 animate-in fade-in zoom-in-95 duration-200 my-auto">
           
           <!-- Top glowing brand badge -->
@@ -1886,6 +1916,9 @@ export function renderCustomerView(container, store, options = {}) {
       }
       try {
         localStorage.setItem('ays_active_order_id', order.id);
+        if (orderPayload.items && orderPayload.items.length > 0) {
+          localStorage.setItem('ays_last_cart_items', JSON.stringify(orderPayload.items));
+        }
       } catch {}
       store.clearCart();
       isCartOpen = false;
@@ -2032,7 +2065,12 @@ export function renderCustomerView(container, store, options = {}) {
 
           const cartTotals = store.getCartTotals();
           const targetVenueId = window.store?.venue?.id || store.venue?.id || 'cafe-first-way-cafe-hotc';
-          const cartItems = (store.cart?.items || []).map(ci => ({
+          
+          const activeOrderId = (orderId && orderId !== 'null' && orderId !== 'undefined' && orderId !== '') 
+            ? orderId 
+            : (typeof localStorage !== 'undefined' ? localStorage.getItem('ays_active_order_id') : null);
+
+          let cartItems = (store.cart?.items || []).map(ci => ({
             id: ci.item.id,
             dish_id: ci.item.id,
             dish_name: ci.item.name,
@@ -2042,41 +2080,87 @@ export function renderCustomerView(container, store, options = {}) {
             notes: ci.customization || '',
             customization: ci.customization || ''
           }));
-          const cartTotal = cartTotals.total;
+
+          if (cartItems.length === 0 && order?.items && order.items.length > 0) {
+            cartItems = order.items.map(it => ({
+              id: it.id || it.dish_id,
+              dish_id: it.dish_id || it.id,
+              dish_name: it.name || it.dish_name,
+              name: it.name || it.dish_name,
+              quantity: it.quantity || 1,
+              price: it.price || 0,
+              notes: it.notes || it.customization || '',
+              customization: it.customization || it.notes || ''
+            }));
+          }
+          if (cartItems.length === 0 && lastPlacedOrder?.items && lastPlacedOrder.items.length > 0) {
+            cartItems = lastPlacedOrder.items;
+          }
+          if (cartItems.length === 0 && activeOrderId) {
+            const existingStoreOrder = (store.orders || []).find(o => o.id === activeOrderId);
+            if (existingStoreOrder?.items && existingStoreOrder.items.length > 0) {
+              cartItems = existingStoreOrder.items;
+            }
+          }
+          if (cartItems.length === 0 && typeof localStorage !== 'undefined') {
+            try {
+              const cached = JSON.parse(localStorage.getItem('ays_last_cart_items') || '[]');
+              if (Array.isArray(cached) && cached.length > 0) cartItems = cached;
+            } catch {}
+          }
+
+          let cartTotal = cartTotals.total;
+          if (!cartTotal || cartTotal === 0) {
+            cartTotal = order?.total_amount || order?.total || lastPlacedOrder?.total_amount || lastPlacedOrder?.total || 
+              cartItems.reduce((acc, it) => acc + (Number(it.price) || 0) * (Number(it.quantity) || 1), 0);
+          }
+
+          try {
+            if (cartItems.length > 0) {
+              localStorage.setItem('ays_last_cart_items', JSON.stringify(cartItems));
+            }
+          } catch {}
 
           // Phase 1.2: Execute Database Write & Handle Errors Gracefully
           const supabaseClient = window.store?.supabase || store?.supabase || supabase;
-          const activeOrderId = (orderId && orderId !== 'null' && orderId !== 'undefined' && orderId !== '') 
-            ? orderId 
-            : (typeof localStorage !== 'undefined' ? localStorage.getItem('ays_active_order_id') : null);
-
           let persistedOrder = null;
 
           if (supabaseClient && typeof supabaseClient.from === 'function') {
             if (activeOrderId) {
               // Order row exists (update pattern)
+              const updatePayload = {
+                utr_number: cleanUtr,
+                payment_status: 'UTR_SUBMITTED',
+                verification_status: 'PENDING_APPROVAL',
+                status: 'AWAITING_VERIFICATION',
+                updated_at: new Date().toISOString()
+              };
+              if (cartItems.length > 0) {
+                updatePayload.items = cartItems;
+              }
+              if (cartTotal > 0) {
+                updatePayload.total = cartTotal;
+                updatePayload.total_amount = cartTotal;
+              }
+
               let { data, error } = await supabaseClient
                 .from('orders')
-                .update({
-                  utr_number: cleanUtr,
-                  payment_status: 'UTR_SUBMITTED',
-                  verification_status: 'PENDING_APPROVAL',
-                  status: 'AWAITING_VERIFICATION',
-                  updated_at: new Date().toISOString()
-                })
+                .update(updatePayload)
                 .eq('id', activeOrderId)
                 .select();
 
               if (error) {
                 console.warn("Primary Supabase update error, falling back to schema-compliant update:", error);
+                const fallbackUpdate = {
+                  status: 'New',
+                  verification_status: 'PENDING_APPROVAL',
+                  customer_name: `UTR: ${cleanUtr}`,
+                  session_token: sessionToken
+                };
+                if (cartItems.length > 0) fallbackUpdate.items = cartItems;
                 const fallbackRes = await supabaseClient
                   .from('orders')
-                  .update({
-                    status: 'New',
-                    verification_status: 'PENDING_APPROVAL',
-                    customer_name: `UTR: ${cleanUtr}`,
-                    session_token: sessionToken
-                  })
+                  .update(fallbackUpdate)
                   .eq('id', activeOrderId)
                   .select();
 
@@ -2147,6 +2231,9 @@ export function renderCustomerView(container, store, options = {}) {
 
           const localPayload = persistedOrder ? {
             ...persistedOrder,
+            items: (persistedOrder.items && persistedOrder.items.length > 0) ? persistedOrder.items : cartItems,
+            total: persistedOrder.total || cartTotal,
+            total_amount: persistedOrder.total_amount || cartTotal,
             utr_number: cleanUtr,
             payment_status: 'UTR_SUBMITTED',
             verification_status: 'PENDING_APPROVAL',
@@ -2186,7 +2273,7 @@ export function renderCustomerView(container, store, options = {}) {
             return;
           }
 
-          lastPlacedOrder = verifyRes.order || persistedOrder;
+          lastPlacedOrder = verifyRes.order || persistedOrder || localPayload;
           try {
             if (lastPlacedOrder?.id) {
               localStorage.setItem('ays_active_order_id', lastPlacedOrder.id);
@@ -2196,6 +2283,8 @@ export function renderCustomerView(container, store, options = {}) {
 
           // Close the dynamic UPI verification page immediately and display only the order status
           showUPIModal = false;
+          const modalEl = container.querySelector('#dynamic-upi-modal-overlay');
+          if (modalEl) modalEl.remove();
           activeTab = 'track';
           render();
         } catch (err) {
@@ -2442,14 +2531,19 @@ export function renderCustomerView(container, store, options = {}) {
       lastPlacedOrder.status = e.detail.status;
     }
     showUPIModal = false;
+    const modalEl = container.querySelector('#dynamic-upi-modal-overlay');
+    if (modalEl) modalEl.remove();
     render();
   };
 
   const onOrderApproved = (e) => {
     showUPIModal = false;
+    const modalEl = container.querySelector('#dynamic-upi-modal-overlay');
+    if (modalEl) modalEl.remove();
     if (e.detail?.order) {
       lastPlacedOrder = e.detail.order;
     }
+    activeTab = 'track';
     render();
   };
 
