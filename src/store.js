@@ -31,10 +31,23 @@ import {
 } from './auth.js';
 import { parseMenuPrompt } from './utils/menuTextParser.js';
 import { audioAlertManager } from './utils/audioAlerts.js';
-const isTestEnv = Boolean(
-  (typeof globalThis !== 'undefined' && globalThis.IS_TEST_ENV) || 
-  (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test')
-);
+function checkIsTestEnv() {
+  return Boolean(
+    (typeof globalThis !== 'undefined' && (globalThis.IS_TEST_ENV || globalThis.__AYS_TEST_FIXTURES__)) || 
+    (typeof process !== 'undefined' &&
+     (process.env?.NODE_ENV === 'test' ||
+      process.env?.VITEST ||
+      process.argv?.some(arg => arg.includes('test') || arg.includes('mocha') || arg.includes('runner'))))
+  );
+}
+const isTestEnv = checkIsTestEnv();
+
+function getTestFixtures() {
+  if (typeof globalThis !== 'undefined' && globalThis.__AYS_TEST_FIXTURES__) {
+    return globalThis.__AYS_TEST_FIXTURES__;
+  }
+  return null;
+}
 
 // Production Venue Configuration (Strictly maps to live Supabase venues table)
 export const INITIAL_VENUE = {
@@ -68,588 +81,16 @@ export const DEFAULT_TERMINAL_PAIRING = {
   status: 'PAIRED'
 };
 
-export const INITIAL_TABLES = isTestEnv ? [
-  {
-    id: 'table-uuid-1',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 1,
-    number: 1,
-    capacity: 2,
-    zone: 'Indoor Courtyard',
-    section: 'Indoor Courtyard',
-    status: 'Vacant', // 'Vacant' | 'Active Ordering' | 'Food Ready' | 'Payment Due'
-    party_size: 0,
-    seated_guests: 0,
-    seated_at: null,
-    active_order_id: null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/1`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-2',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 2,
-    number: 2,
-    capacity: 4,
-    zone: 'Indoor Courtyard',
-    section: 'Indoor Courtyard',
-    status: isTestEnv ? 'Active Ordering' : 'Vacant',
-    party_size: isTestEnv ? 2 : 0,
-    seated_guests: isTestEnv ? 2 : 0,
-    seated_at: isTestEnv ? new Date(Date.now() - 25 * 60 * 1000).toISOString() : null,
-    active_order_id: isTestEnv ? 'AYS-801' : null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/2`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-3',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 3,
-    number: 3,
-    capacity: 4,
-    zone: 'Indoor Courtyard',
-    section: 'Indoor Courtyard',
-    status: 'Vacant',
-    party_size: 0,
-    seated_guests: 0,
-    seated_at: null,
-    active_order_id: null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/3`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-4',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 4,
-    number: 4,
-    capacity: 6,
-    zone: 'Indoor Courtyard',
-    section: 'Indoor Courtyard',
-    status: isTestEnv ? 'Active Ordering' : 'Vacant',
-    party_size: isTestEnv ? 4 : 0,
-    seated_guests: isTestEnv ? 4 : 0,
-    seated_at: isTestEnv ? new Date(Date.now() - 15 * 60 * 1000).toISOString() : null,
-    active_order_id: null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/4`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-5',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 5,
-    number: 5,
-    capacity: 2,
-    zone: 'Verandah & Garden',
-    section: 'Verandah & Garden',
-    status: isTestEnv ? 'Food Ready' : 'Vacant',
-    party_size: isTestEnv ? 2 : 0,
-    seated_guests: isTestEnv ? 2 : 0,
-    seated_at: isTestEnv ? new Date(Date.now() - 40 * 60 * 1000).toISOString() : null,
-    active_order_id: isTestEnv ? 'AYS-802' : null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/5`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-6',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 6,
-    number: 6,
-    capacity: 4,
-    zone: 'Verandah & Garden',
-    section: 'Verandah & Garden',
-    status: 'Vacant',
-    party_size: 0,
-    seated_guests: 0,
-    seated_at: null,
-    active_order_id: null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/6`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-7',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 7,
-    number: 7,
-    capacity: 8,
-    zone: 'Verandah & Garden',
-    section: 'Verandah & Garden',
-    status: isTestEnv ? 'Payment Due' : 'Vacant',
-    party_size: isTestEnv ? 6 : 0,
-    seated_guests: isTestEnv ? 6 : 0,
-    seated_at: isTestEnv ? new Date(Date.now() - 55 * 60 * 1000).toISOString() : null,
-    active_order_id: isTestEnv ? 'AYS-804' : null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/7`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-8',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 8,
-    number: 8,
-    capacity: 4,
-    zone: 'Verandah & Garden',
-    section: 'Verandah & Garden',
-    status: 'Vacant',
-    party_size: 0,
-    seated_guests: 0,
-    seated_at: null,
-    active_order_id: null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/8`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-9',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 9,
-    number: 9,
-    capacity: 2,
-    zone: 'Mezzanine Lounge',
-    section: 'Mezzanine Lounge',
-    status: 'Vacant',
-    party_size: 0,
-    seated_guests: 0,
-    seated_at: null,
-    active_order_id: null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/9`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-10',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 10,
-    number: 10,
-    capacity: 6,
-    zone: 'Mezzanine Lounge',
-    section: 'Mezzanine Lounge',
-    status: isTestEnv ? 'Active Ordering' : 'Vacant',
-    party_size: isTestEnv ? 5 : 0,
-    seated_guests: isTestEnv ? 5 : 0,
-    seated_at: isTestEnv ? new Date(Date.now() - 18 * 60 * 1000).toISOString() : null,
-    active_order_id: null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/10`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-11',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 11,
-    number: 11,
-    capacity: 4,
-    zone: 'Mezzanine Lounge',
-    section: 'Mezzanine Lounge',
-    status: 'Vacant',
-    party_size: 0,
-    seated_guests: 0,
-    seated_at: null,
-    active_order_id: null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/11`,
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'table-uuid-12',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 12,
-    number: 12,
-    capacity: 10,
-    zone: 'Mezzanine Lounge',
-    section: 'Mezzanine Lounge',
-    status: 'Vacant',
-    party_size: 0,
-    seated_guests: 0,
-    seated_at: null,
-    active_order_id: null,
-    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/12`,
-    created_at: new Date().toISOString()
-  }
-] : [];
+export const INITIAL_TABLES = Object.freeze([]);
 
-export const DEFAULT_CATALOG_DISHES = null;
-export const DEFAULT_CATALOG_CATEGORIES = [];
+export const DEFAULT_CATALOG_DISHES = Object.freeze([]);
+export const DEFAULT_CATALOG_CATEGORIES = Object.freeze([]);
 
-export const INITIAL_MENU_ITEMS = isTestEnv ? [
-  // --- SMALL PLATES ---
-  {
-    id: 'item-01',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Truffle & Aged Parmesan Polenta Fries',
-    category: 'Small Plates',
-    price: 380,
-    unit_cost: 140,
-    dietary: 'veg', // 'veg' | 'non-veg' | 'vegan'
-    description: 'Golden polenta fingers dusted with 24-month Parmigiano-Reggiano, white truffle oil & roasted garlic rosemary dip.',
-    spice_level: 0,
-    prep_time_mins: 8,
-    is_chef_special: true,
-    stock_quantity: 45,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-02',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Burrata with Charred Stone Peaches',
-    category: 'Small Plates',
-    price: 520,
-    unit_cost: 195,
-    dietary: 'veg',
-    description: 'Fresh artisanal Puglia-style burrata, caramelized peaches, wild arugula, pine nuts, and 12-year Modena balsamic glaze.',
-    spice_level: 0,
-    prep_time_mins: 6,
-    is_chef_special: false,
-    stock_quantity: 20,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1592417817098-8f3d6910985b?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-03',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Gunpowder Butter Roasted Baby Potatoes',
-    category: 'Small Plates',
-    price: 340,
-    unit_cost: 120,
-    dietary: 'veg',
-    description: 'Crisped pahadi baby potatoes tossed in house-milled Podi masala, clarified desi ghee, curry leaf oil, and hung curd emulsion.',
-    spice_level: 2,
-    prep_time_mins: 10,
-    is_chef_special: false,
-    stock_quantity: 60,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-04',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Crispy Salt & Pepper Calamari',
-    category: 'Small Plates',
-    price: 580,
-    unit_cost: 220,
-    dietary: 'non-veg',
-    description: 'Flash-fried squid rings, Sichuan peppercorns, scallions, bird’s eye chili, served with smoked gochujang aioli.',
-    spice_level: 2,
-    prep_time_mins: 9,
-    is_chef_special: true,
-    stock_quantity: 18,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-05',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Smoked Malai Chicken Skewers',
-    category: 'Small Plates',
-    price: 490,
-    unit_cost: 180,
-    dietary: 'non-veg',
-    description: 'Free-range chicken morsels steeped overnight in cardamom cream, roasted green chilies, smoked over charcoal embers.',
-    spice_level: 1,
-    prep_time_mins: 12,
-    is_chef_special: false,
-    stock_quantity: 35,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80'
-  },
+export const INITIAL_MENU_ITEMS = Object.freeze([]);
 
-  // --- WOODFIRED & OVEN ---
-  {
-    id: 'item-06',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Margherita Fior di Latte & Basil',
-    category: 'Woodfired & Oven',
-    price: 590,
-    unit_cost: 210,
-    dietary: 'veg',
-    description: '48-hour fermented sourdough crust, San Marzano D.O.P tomatoes, fresh Fior di Latte mozzarella, cold-pressed olive oil, genovese basil.',
-    spice_level: 0,
-    prep_time_mins: 12,
-    is_chef_special: false,
-    stock_quantity: 50,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1604382354936-07c5d9983bd3?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-07',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Wild Mushroom, Fontina & Truffle Cream Pizza',
-    category: 'Woodfired & Oven',
-    price: 690,
-    unit_cost: 255,
-    dietary: 'veg',
-    description: 'Porcini and shiitake mushroom ragù, melted Fontina & Taleggio cheese, thyme leaves, finished with black truffle pate.',
-    spice_level: 0,
-    prep_time_mins: 14,
-    is_chef_special: true,
-    stock_quantity: 28,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-08',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Artisanal Pepperoni & Hot Fermented Honey',
-    category: 'Woodfired & Oven',
-    price: 740,
-    unit_cost: 275,
-    dietary: 'non-veg',
-    description: 'Slow-cured pork pepperoni cups, crushed tomato sauce, aged mozzarella, drizzled tableside with habanero-infused raw blossom honey.',
-    spice_level: 2,
-    prep_time_mins: 13,
-    is_chef_special: true,
-    stock_quantity: 32,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1628840042765-356cda07504e?w=600&auto=format&fit=crop&q=80'
-  },
+export const INITIAL_ORDERS = Object.freeze([]);
 
-  // --- LARGE PLATES & BOWLS ---
-  {
-    id: 'item-09',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Slow-Braised Awadhi Lamb Shank Rogan',
-    category: 'Large Plates & Bowls',
-    price: 880,
-    unit_cost: 330,
-    dietary: 'non-veg',
-    description: '6-hour simmered Kashmiri lamb shank falling off the bone, rich ratanjot gravy, accompanied by flaky saffron sheermal bread.',
-    spice_level: 2,
-    prep_time_mins: 16,
-    is_chef_special: true,
-    stock_quantity: 14,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-10',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Norwegian Salmon with Charred Asparagus',
-    category: 'Large Plates & Bowls',
-    price: 980,
-    unit_cost: 360,
-    dietary: 'non-veg',
-    description: 'Pan-seared salmon fillet with crispy skin, silky celery root purée, blistered baby carrots, caper-dill beurre blanc.',
-    spice_level: 0,
-    prep_time_mins: 15,
-    is_chef_special: false,
-    stock_quantity: 12,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-11',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Smoked Paneer Makhani with Truffle Kulcha',
-    category: 'Large Plates & Bowls',
-    price: 540,
-    unit_cost: 195,
-    dietary: 'veg',
-    description: 'Soft house cottage cheese cubes in silky velvet tomato gravy finished with Kasuri Methi butter and mini truffle herb kulchas.',
-    spice_level: 1,
-    prep_time_mins: 12,
-    is_chef_special: false,
-    stock_quantity: 40,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=600&auto=format&fit=crop&q=80'
-  },
-
-  // --- CRAFT BEVERAGES & BREWS ---
-  {
-    id: 'item-12',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Yuzu Cold Brew Botanical Tonic',
-    category: 'Craft Beverages & Brews',
-    price: 290,
-    unit_cost: 100,
-    dietary: 'vegan',
-    description: 'Single-estate Coorg cold brew coffee, Japanese yuzu citrus extract, clarified tonic water, bruised Thai basil leaves.',
-    spice_level: 0,
-    prep_time_mins: 3,
-    is_chef_special: true,
-    stock_quantity: 90,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-13',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Smoked Rosemary Old Fashioned (Zero ABV / Cocktail)',
-    category: 'Craft Beverages & Brews',
-    price: 360,
-    unit_cost: 130,
-    dietary: 'vegan',
-    description: 'Bourbon barrel-aged demerara syrup, aromatic Angostura bitters, orange zest twist, torched rosemary smoke under glass cloche.',
-    spice_level: 0,
-    prep_time_mins: 4,
-    is_chef_special: true,
-    stock_quantity: 65,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-14',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Hibiscus & Wild Berries Sparkling Elixir',
-    category: 'Craft Beverages & Brews',
-    price: 260,
-    unit_cost: 95,
-    dietary: 'vegan',
-    description: 'Cold-steeped organic Egyptian hibiscus petals, crushed raspberries, Meyer lemon juice, sparkling mineral water.',
-    spice_level: 0,
-    prep_time_mins: 3,
-    is_chef_special: false,
-    stock_quantity: 80,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80'
-  },
-
-  // --- ARTISANAL DESSERTS ---
-  {
-    id: 'item-15',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Valrhona Dark Chocolate Warm Fondant',
-    category: 'Artisanal Desserts',
-    price: 440,
-    unit_cost: 160,
-    dietary: 'veg',
-    description: '70% Guanaja chocolate lava core, crushed cacao nibs, dusted with Cornish sea salt flakes, accompanied by Madagascar vanilla bean gelato.',
-    spice_level: 0,
-    prep_time_mins: 11,
-    is_chef_special: true,
-    stock_quantity: 25,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=600&auto=format&fit=crop&q=80'
-  },
-  {
-    id: 'item-16',
-    venue_id: INITIAL_VENUE.id,
-    name: 'Basque Burnt Cheesecake with Sour Cherry Compote',
-    category: 'Artisanal Desserts',
-    price: 420,
-    unit_cost: 155,
-    dietary: 'veg',
-    description: 'Caramelized crust with an impossibly creamy molten center, paired with tart Amarena wild cherry reduction.',
-    spice_level: 0,
-    prep_time_mins: 5,
-    is_chef_special: false,
-    stock_quantity: 30,
-    is_available: true,
-    image_url: 'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=600&auto=format&fit=crop&q=80'
-  }
-] : [];
-
-// Initial realistic active orders for POS & KDS demonstration
-export const INITIAL_ORDERS = isTestEnv ? [
-  {
-    id: 'AYS-801',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 2,
-    source: 'QR_DINE_IN',
-    status: 'Preparing', // 'New' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled'
-    total_amount: 1070.00,
-    notes: 'No ice in drinks, extra napkins please',
-    created_at: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
-    items: [
-      { id: 'item-01', name: 'Truffle & Aged Parmesan Polenta Fries', quantity: 1, price: 380, customization: 'Extra garlic aioli' },
-      { id: 'item-07', name: 'Wild Mushroom & Truffle Cream Pizza', quantity: 1, price: 690, customization: 'Crispy base' }
-    ]
-  },
-  {
-    id: 'AYS-802',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 5,
-    source: 'QR_DINE_IN',
-    status: 'Ready',
-    total_amount: 1720.00,
-    notes: 'Guest requested birthday sparkler with dessert',
-    created_at: new Date(Date.now() - 17 * 60 * 1000).toISOString(),
-    items: [
-      { id: 'item-04', name: 'Crispy Salt & Pepper Calamari', quantity: 1, price: 580, customization: 'Medium spice' },
-      { id: 'item-08', name: 'Pepperoni & Hot Fermented Honey', quantity: 1, price: 740, customization: 'Extra honey' },
-      { id: 'item-16', name: 'Basque Burnt Cheesecake', quantity: 1, price: 420, customization: 'Birthday candle' }
-    ]
-  },
-  {
-    id: 'AYS-803',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 8,
-    source: 'SWIGGY',
-    status: 'Preparing',
-    total_amount: 980.00,
-    notes: 'Rider arriving in 6 mins • Delivery Bag #SWG-92',
-    created_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
-    items: [
-      { id: 'item-09', name: 'Awadhi Lamb Shank Rogan', quantity: 1, price: 880, customization: 'Standard packaging' },
-      { id: 'item-14', name: 'Hibiscus Sparkling Elixir', quantity: 1, price: 260, customization: 'Chilled bottle' }
-    ]
-  },
-  {
-    id: 'AYS-804',
-    venue_id: INITIAL_VENUE.id,
-    table_number: 7,
-    source: 'QR_DINE_IN',
-    status: 'Ready',
-    total_amount: 2450.00,
-    notes: 'Split bill requested • Payment due',
-    created_at: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
-    items: [
-      { id: 'item-02', name: 'Burrata with Charred Stone Peaches', quantity: 2, price: 520 },
-      { id: 'item-08', name: 'Artisanal Pepperoni & Hot Fermented Honey', quantity: 1, price: 740 },
-      { id: 'item-10', name: 'Norwegian Salmon with Charred Asparagus', quantity: 1, price: 980 }
-    ]
-  }
-] : [];
-
-// Customizable Promotional Offer Banners for Cafe Hero Banner
-export const INITIAL_OFFER_BANNERS = isTestEnv ? [
-  {
-    id: 'offer-1',
-    venue_id: INITIAL_VENUE.id,
-    title: 'Flat 20% OFF on Artisanal Brews',
-    subtitle: 'Valid on all handcrafted cold brews, pour-overs & lattes',
-    badge_text: '20% OFF',
-    coupon_code: 'BREW20',
-    discount_type: 'percentage',
-    discount_value: 20,
-    discount_percent: 20,
-    min_order_amount: 300,
-    is_active: true,
-    bg_gradient: 'from-[#FF7622] to-[#FFA14A]',
-    text_color: '#FFFFFF',
-    icon: '☕',
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'offer-2',
-    venue_id: INITIAL_VENUE.id,
-    title: 'Happy Hours 4PM - 7PM: 1+1 on Cocktails',
-    subtitle: 'Order any signature craft cocktail & get the second one on the house',
-    badge_text: 'BUY 1 GET 1',
-    coupon_code: 'HAPPYHOUR',
-    discount_type: 'percentage',
-    discount_value: 50,
-    discount_percent: 50,
-    min_order_amount: 500,
-    is_active: true,
-    bg_gradient: 'from-[#181C2E] to-[#2D3450]',
-    text_color: '#FFFFFF',
-    icon: '🍸',
-    created_at: new Date().toISOString()
-  },
-  {
-    id: 'offer-3',
-    venue_id: INITIAL_VENUE.id,
-    title: 'Chef\'s Special: Free Dessert on Orders Above ₹800',
-    subtitle: 'Complimentary Basque Burnt Cheesecake slice with family orders',
-    badge_text: 'FREE DESSERT',
-    coupon_code: 'CHEFGIFT',
-    discount_type: 'flat',
-    discount_value: 420,
-    discount_percent: 0,
-    min_order_amount: 800,
-    is_active: true,
-    bg_gradient: 'from-[#059C6A] to-[#10B981]',
-    text_color: '#FFFFFF',
-    icon: '🍰',
-    created_at: new Date().toISOString()
-  }
-] : [];
+export const INITIAL_OFFER_BANNERS = Object.freeze([]);
 
 // Multi-Tenant Registered Cafes Directory (Super-Admin Control Plane)
 export const INITIAL_TENANTS = [];
@@ -664,6 +105,7 @@ export class ReactiveStore {
   constructor() {
     this.listeners = new Set();
     this.supabase = supabase;
+    const isTestEnv = checkIsTestEnv();
 
     // One-time migration: purge legacy mock / demo keys from browser localStorage in production
     const mockPurgedKey = 'ays_prod_clean_purge_v5';
@@ -720,9 +162,11 @@ export class ReactiveStore {
     }
 
     // Dining tables
-    const loadedTables = this.load('ays_tables', isTestEnv ? INITIAL_TABLES : []);
-    this.tables = (!isTestEnv && !this.venue) ? [] : loadedTables.map(tbl => {
-      const init = isTestEnv ? INITIAL_TABLES.find(t => t.table_number === tbl.table_number) : null;
+    const fixtures = getTestFixtures();
+    const defaultTables = fixtures?.tables || INITIAL_TABLES;
+    const loadedTables = this.load('ays_tables', defaultTables);
+    this.tables = (!this.venue && !fixtures) ? [] : loadedTables.map(tbl => {
+      const init = defaultTables.find(t => t.table_number === tbl.table_number);
       const zone = tbl.zone || tbl.section || init?.zone || 'Indoor Courtyard';
       const rawStatus = tbl.status || init?.status || 'Vacant';
       const status = rawStatus === 'Active' ? 'Active Ordering' : rawStatus === 'Served' ? 'Food Ready' : rawStatus;
@@ -756,7 +200,7 @@ export class ReactiveStore {
       }
     } catch (e) {}
 
-    const initialDishes = isTestEnv ? INITIAL_MENU_ITEMS : (cachedDishes.length > 0 ? cachedDishes : []);
+    const initialDishes = fixtures?.menuItems || (cachedDishes.length > 0 ? cachedDishes : INITIAL_MENU_ITEMS);
     this.categories = cachedCats.length > 0 ? cachedCats : this.load('ays_categories', []);
     this.dishes = this.load('ays_dishes', initialDishes);
     if ((!this.dishes || this.dishes.length === 0) && cachedDishes.length > 0) {
@@ -827,12 +271,14 @@ export class ReactiveStore {
       const loadedOrders = cachedVenueOrders !== null ? cachedVenueOrders : this.load('ays_orders', []);
       this.orders = Array.isArray(loadedOrders) ? loadedOrders : [];
     } else {
-      this.orders = this.load('ays_orders', INITIAL_ORDERS);
+      const defaultOrders = fixtures?.orders || INITIAL_ORDERS;
+      this.orders = this.load('ays_orders', defaultOrders);
       this.orders = (this.orders || []).filter(o => !/^AYS-[67]\d{2}/.test(o.id));
       this.save('ays_orders', this.orders);
     }
     this.serviceRequests = this.load('ays_requests', []);
-    this.offerBanners = this.load('ays_offer_banners', isTestEnv ? INITIAL_OFFER_BANNERS : []);
+    const defaultBanners = fixtures?.offerBanners || INITIAL_OFFER_BANNERS;
+    this.offerBanners = this.load('ays_offer_banners', defaultBanners);
     
     // Harmonize table occupancy states and eliminate ghost diners/timers
     this.syncTableStates();
@@ -865,6 +311,7 @@ export class ReactiveStore {
     // Active customer cart (per device)
     this.cart = {
       table_number: isTestEnv ? 4 : null,
+      venue_id: null,
       items: [],
       notes: ''
     };
@@ -905,7 +352,8 @@ export class ReactiveStore {
         this.onboarded = true;
         this.merchant = this.load('ays_merchant', DEFAULT_MERCHANT);
         this.terminalPairing = this.load('ays_terminal_pairing', DEFAULT_TERMINAL_PAIRING);
-        this.cachedStaff = this.load('ays_cached_staff', JSON.parse(JSON.stringify(SEED_STAFF)));
+        const defaultStaff = fixtures?.staff || SEED_STAFF;
+        this.cachedStaff = this.load('ays_cached_staff', JSON.parse(JSON.stringify(defaultStaff)));
         this.currentStaff = this.load('ays_current_staff', this.cachedStaff.find(s => s.role === ROLES.CASHIER) || this.cachedStaff[0] || null);
         this.currentUser = null;
         this.isLocked = this.load('ays_is_locked', false);
@@ -1115,19 +563,28 @@ export class ReactiveStore {
     if (this.listeners && typeof this.listeners.clear === 'function') {
       this.listeners.clear();
     }
+    const fixtures = getTestFixtures();
+    const defaultTables = fixtures?.tables || INITIAL_TABLES;
+    const defaultMenu = fixtures?.menuItems || INITIAL_MENU_ITEMS;
+    const defaultOrders = fixtures?.orders || INITIAL_ORDERS;
+    const defaultStaff = fixtures?.staff || SEED_STAFF;
+    const defaultBanners = fixtures?.offerBanners || INITIAL_OFFER_BANNERS;
+
     this.venue = { ...INITIAL_VENUE };
-    this.tables = JSON.parse(JSON.stringify(INITIAL_TABLES));
-    this.menuItems = JSON.parse(JSON.stringify(INITIAL_MENU_ITEMS));
-    this.orders = JSON.parse(JSON.stringify(INITIAL_ORDERS));
+    this.tables = JSON.parse(JSON.stringify(defaultTables));
+    this.menuItems = JSON.parse(JSON.stringify(defaultMenu));
+    this.orders = JSON.parse(JSON.stringify(defaultOrders));
     this.serviceRequests = [];
     this.cart.items = [];
+    this.cart.notes = '';
+    this.cart.venue_id = this.venue?.id || null;
     
     this.save('ays_venue', this.venue);
     this.save('ays_tables', this.tables);
     this.save('ays_menu', this.menuItems);
     this.save('ays_orders', this.orders);
     this.save('ays_requests', this.serviceRequests);
-    this.offerBanners = JSON.parse(JSON.stringify(INITIAL_OFFER_BANNERS));
+    this.offerBanners = JSON.parse(JSON.stringify(defaultBanners));
     this.save('ays_offer_banners', this.offerBanners);
 
     this.seedDemoCatalog();
@@ -1139,7 +596,7 @@ export class ReactiveStore {
     this.save('ays_merchant', this.merchant);
     this.terminalPairing = { ...DEFAULT_TERMINAL_PAIRING };
     this.save('ays_terminal_pairing', this.terminalPairing);
-    this.cachedStaff = JSON.parse(JSON.stringify(SEED_STAFF));
+    this.cachedStaff = JSON.parse(JSON.stringify(defaultStaff));
     this.save('ays_cached_staff', this.cachedStaff);
     this.currentStaff = this.cachedStaff.find(s => s.role === ROLES.CASHIER) || this.cachedStaff[0] || null;
     this.save('ays_current_staff', this.currentStaff);
@@ -1207,7 +664,8 @@ export class ReactiveStore {
       { id: 'inv-06', outlet_id: this.venue.id, name: 'Fresh Farm Milk', current_stock: 15000, unit: 'ml' }
     ];
 
-    this.dishes = (INITIAL_MENU_ITEMS || []).map(item => {
+    const defaultMenu = getTestFixtures()?.menuItems || INITIAL_MENU_ITEMS;
+    this.dishes = (defaultMenu || []).map(item => {
       const cat = catMap[item.category] || { id: 'cat-01' };
       return {
         ...item,
@@ -2168,33 +1626,32 @@ export class ReactiveStore {
     if (!tableNum) return;
     const tNum = parseInt(tableNum, 10);
     if (isNaN(tNum)) return;
-    this.cart.table_number = tNum;
     const vId = venueId || this.venue?.id || 'default';
+    this.cart.table_number = tNum;
+    this.cart.venue_id = vId;
+    this._cartVenueId = vId;
+
     const scopedKey = `ays_cart_${vId}_${tNum}`;
     const legacyKey = `ays_cart_table_${tNum}`;
     const cached = this.load(scopedKey, null) || (!venueId || venueId === 'default' ? this.load(legacyKey, null) : null);
     if (cached && Array.isArray(cached.items)) {
       this.cart.table_number = tNum;
+      this.cart.venue_id = vId;
       this.cart.items = cached.items;
       this.cart.notes = cached.notes || '';
-    } else if (vId !== (this.venue?.id || 'default')) {
-      // Explicitly loading a different venue/tenant with no cached cart -> isolate and clear
-      this.cart.table_number = tNum;
-      this.cart.items = [];
-      this.cart.notes = '';
-    } else if (!this.cart.items || this.cart.table_number !== tNum) {
-      // Different table number or uninitialized -> clear
-      this.cart.table_number = tNum;
-      this.cart.items = [];
-      this.cart.notes = '';
     } else {
+      // No cached cart found for this venue and table -> strictly reset items and notes
       this.cart.table_number = tNum;
+      this.cart.venue_id = vId;
+      this.cart.items = [];
+      this.cart.notes = '';
     }
   }
 
   syncTableCart() {
     const tableNum = this.cart.table_number;
-    const vId = this.venue?.id || 'default';
+    const vId = this.cart.venue_id || this.venue?.id || 'default';
+    this.cart.venue_id = vId;
     if (!tableNum) {
       this.save(`ays_cart_${vId}`, this.cart);
       this.save('ays_cart', this.cart);
@@ -2212,7 +1669,7 @@ export class ReactiveStore {
           tableNumber: tableNum,
           cart: this.cart,
           senderTabId: this.tabId,
-          venue_id: this.venue?.id
+          venue_id: vId
         });
       } catch {}
     }
@@ -2228,7 +1685,7 @@ export class ReactiveStore {
               tableNumber: tableNum,
               cart: this.cart,
               senderTabId: this.tabId,
-              venue_id: this.venue?.id
+              venue_id: vId
             }
           }).catch(() => {});
         } catch {}
@@ -2313,9 +1770,10 @@ export class ReactiveStore {
 
   clearCart(targetTableNumber = null) {
     const tableNum = targetTableNumber || this.cart.table_number;
-    const vId = this.venue?.id || 'default';
+    const vId = this.cart.venue_id || this.venue?.id || 'default';
     this.cart.items = [];
     this.cart.notes = '';
+    this.cart.venue_id = vId;
     if (tableNum) {
       try {
         localStorage.removeItem(`ays_cart_${vId}_${tableNum}`);
@@ -2480,10 +1938,11 @@ export class ReactiveStore {
     }
 
     let isValid = false;
-    if (adminStaff.pin_hash && adminStaff.pin_salt) {
-      const candidateHash = await hashPIN(cleanPin, adminStaff.pin_salt);
+    const effectiveSalt = adminStaff.pin_salt || adminStaff.salt;
+    if (adminStaff.pin_hash && effectiveSalt) {
+      const candidateHash = await hashPIN(cleanPin, effectiveSalt);
       isValid = timingSafeEqual(candidateHash, adminStaff.pin_hash);
-    } else if (cleanPin === '1234' || cleanPin === '9999' || cleanPin === adminStaff.pin) {
+    } else if (adminStaff.pin && cleanPin === adminStaff.pin) {
       isValid = true;
     }
 
@@ -4697,8 +4156,9 @@ export class ReactiveStore {
       this.currentStaff = adminStaff;
       this.save('ays_current_staff', adminStaff);
     } else {
-      roster.push(...JSON.parse(JSON.stringify(SEED_STAFF)));
-      this.currentStaff = roster[0];
+      const fallbackStaff = getTestFixtures()?.staff || SEED_STAFF;
+      roster.push(...JSON.parse(JSON.stringify(fallbackStaff)));
+      this.currentStaff = roster[0] || null;
       this.save('ays_current_staff', this.currentStaff);
     }
 
@@ -6958,8 +6418,9 @@ export class ReactiveStore {
       const em = (s.email || '').toLowerCase();
       if (r === 'master_admin' || sr === 'master_admin' || r === 'super_admin' || sr === 'super_admin' || s.is_super_admin) return false;
       if (superAdminEmails.includes(em)) return false;
-      const isSeed = ['staff-admin-01', 'staff-manager-01', 'staff-cashier-01', 'staff-server-01', 'staff-bar-01'].includes(s.id) ||
-                     ['Rohan Verma', 'Chef Vikram', 'Priya Sharma', 'Bartender Aarav', 'Vikram Malhotra'].includes(s.name);
+      const fixtureStaff = getTestFixtures()?.staff || [];
+      const isSeed = fixtureStaff.some(seed => seed.id === s.id) || 
+                     SEED_STAFF.some(seed => seed.id === s.id);
       return !isSeed;
     });
     if (ownerStaffProfile && !cafeStaff.some(s => s.id === ownerStaffProfile.id || s.email === ownerStaffProfile.email)) {
@@ -7848,9 +7309,10 @@ export class ReactiveStore {
         }
       }
       if (!staffList || staffList.length === 0) {
+        const fallbackStaff = getTestFixtures()?.staff || SEED_STAFF;
         staffList = (Array.isArray(this.cachedStaff) && this.cachedStaff.length > 0)
           ? this.cachedStaff
-          : SEED_STAFF;
+          : fallbackStaff;
       }
 
       let foundStaff = null;
@@ -7862,8 +7324,9 @@ export class ReactiveStore {
         }
       }
 
-      if (!foundStaff && isTestEnv) {
-        for (const s of SEED_STAFF) {
+      if (!foundStaff && getTestFixtures()) {
+        const fixtureStaff = getTestFixtures()?.staff || [];
+        for (const s of fixtureStaff) {
           if (s.pin === cleanPin || (s.salt && s.pin_hash && verifyPINSync(cleanPin, s.salt, s.pin_hash))) {
             foundStaff = s;
             break;

@@ -26,13 +26,13 @@ import { setupTestEnvironment, createTestSuite } from './helpers.mjs';
 import {
   ROLES,
   PERMISSIONS,
-  SEED_STAFF,
   hashPIN,
   hashPINSync,
   verifyPIN,
   verifyPINSync,
   generateSalt
 } from '../src/auth.js';
+import { SEED_STAFF } from './fixtures/mockStaff.js';
 import { store, INITIAL_VENUE, DEFAULT_MERCHANT, DEFAULT_TERMINAL_PAIRING } from '../src/store.js';
 import {
   renderOnboardingModal,

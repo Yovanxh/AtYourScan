@@ -13,7 +13,8 @@ import { createTestSuite, setupTestEnvironment } from './helpers.mjs';
 setupTestEnvironment();
 
 import { store } from '../src/store.js';
-import { ROLES, SEED_STAFF } from '../src/auth.js';
+import { ROLES } from '../src/auth.js';
+import { SEED_STAFF } from './fixtures/mockStaff.js';
 import { renderPINKeypad, openPINKeypad, renderLockScreenOverlay, getRoleStyle, ROLE_STYLES } from '../src/components/PINKeypad.js';
 import { evaluateAuthGates } from '../src/main.js';
 

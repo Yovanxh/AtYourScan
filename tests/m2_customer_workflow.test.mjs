@@ -190,6 +190,24 @@ suite.test('M2-QR-05: Non-existent venue displays Venue Not Found without synthe
   cleanup?.();
 });
 
+suite.test('M2-QR-06: CustomerView switches venue environment when visiting new venue lacking slugs', () => {
+  setupTestVenueAndTables();
+  store.cafes = [
+    { id: 'venue-slugless-a', name: 'Venue Slugless A' },
+    { id: 'venue-slugless-b', name: 'Venue Slugless B' }
+  ];
+  const container = { innerHTML: '', querySelector() { return null; }, querySelectorAll() { return []; } };
+  window.location.search = '?venue=venue-slugless-a&table=2';
+  let cleanup = renderCustomerView(container, store, { tableNumber: 2 });
+  assert.equal(store.venue?.id, 'venue-slugless-a');
+  cleanup?.();
+
+  window.location.search = '?venue=venue-slugless-b&table=2';
+  cleanup = renderCustomerView(container, store, { tableNumber: 2 });
+  assert.equal(store.venue?.id, 'venue-slugless-b', 'CustomerView must switch to venue-slugless-b even when slugs are undefined');
+  cleanup?.();
+});
+
 // --------------------------------------------------------------------------
 // 2. Dish Availability Enforcement
 // --------------------------------------------------------------------------
@@ -286,6 +304,11 @@ suite.test('M2-CART-02: Multi-tenant cart isolation prevents cross-venue cart co
   assert.equal(store.cart.items[0].item.id, 'dish-2');
   assert.equal(store.cart.items[0].quantity, 3);
   assert.equal(store.cart.items[0].customization, 'Cafe Beta Note');
+
+  // Verify Challenger 2 scenario: Switching to a new venue on the same table WITHOUT manually clearing in-memory cart
+  store.venue = { id: 'cafe-gamma', name: 'Cafe Gamma' };
+  store.loadTableCart(3, 'cafe-gamma');
+  assert.equal(store.cart.items.length, 0, 'Uncached venue table must never inherit in-memory items from previous venue');
 });
 
 suite.test('M2-CART-03: Scoped session keys isolate diner session tokens per venue and table', () => {

@@ -21,7 +21,6 @@ import {
   PERMISSIONS,
   SENSITIVE_PERMISSIONS,
   ROLE_PERMISSIONS,
-  SEED_STAFF,
   hashPIN,
   hashPINSync,
   verifyPIN,
@@ -38,6 +37,7 @@ import {
   generateSalt,
   DEFAULT_SSO_SECRET
 } from '../src/auth.js';
+import { SEED_STAFF } from './fixtures/mockStaff.js';
 import { store } from '../src/store.js';
 
 setupTestEnvironment();

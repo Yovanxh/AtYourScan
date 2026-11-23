@@ -15,10 +15,10 @@ import { setupTestEnvironment, createTestSuite } from './helpers.mjs';
 import {
   ROLES,
   PERMISSIONS,
-  SEED_STAFF,
   hashPIN,
   verifyPIN
 } from '../src/auth.js';
+import { SEED_STAFF } from './fixtures/mockStaff.js';
 import { store } from '../src/store.js';
 
 setupTestEnvironment();

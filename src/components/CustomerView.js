@@ -131,13 +131,16 @@ export function renderCustomerView(container, store, options = {}) {
     if (targetTenant) {
       const targetTenantId = targetTenant.id || targetTenant.cafe_id;
       const currentVenue = store.venue;
-      if (targetTenantId && currentVenue?.id !== targetTenantId &&
-          currentVenue?.cafe_id !== targetTenantId && currentVenue?.slug !== targetTenant.slug) {
+      const isDifferentVenue = targetTenantId && (
+        currentVenue?.id !== targetTenantId &&
+        currentVenue?.cafe_id !== targetTenantId
+      );
+      if (isDifferentVenue) {
         if (typeof store.activateCafeEnvironment === 'function') {
           store.activateCafeEnvironment(targetTenantId);
         }
       }
-      if (!store.venue) {
+      if (!store.venue || (isDifferentVenue && store.venue.id !== targetTenantId && store.venue.cafe_id !== targetTenantId)) {
         store.venue = targetTenant;
       }
     }

@@ -632,7 +632,7 @@ export function renderOnboardingModal(container, store, options = {}) {
                       type="text" 
                       id="input-admin-name" 
                       value="${escapeHtml(formData.adminName)}" 
-                      placeholder="e.g. Dev Anand"
+                      placeholder="e.g. Restaurant Owner"
                       class="w-full bg-[#111116] border ${validationErrors.adminName ? 'border-red-500' : 'border-white/10'} rounded-xl px-3.5 py-2.5 text-xs text-zinc-100 placeholder-zinc-500 focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all"
                     />
                     ${validationErrors.adminName ? `<p class="text-[10px] text-red-400 font-mono mt-1">${validationErrors.adminName}</p>` : ''}

@@ -16,10 +16,10 @@ import { createTestSuite, setupTestEnvironment } from './helpers.mjs';
 import {
   ROLES,
   PERMISSIONS,
-  SEED_STAFF,
   hashPIN,
   generateSalt
 } from '../src/auth.js';
+import { SEED_STAFF } from './fixtures/mockStaff.js';
 import { store, INITIAL_VENUE, DEFAULT_MERCHANT, DEFAULT_TERMINAL_PAIRING } from '../src/store.js';
 
 // Initialize global mock DOM and LocalStorage environment

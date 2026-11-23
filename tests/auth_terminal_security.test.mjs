@@ -14,7 +14,6 @@ import {
   ROLES,
   PERMISSIONS,
   ROLE_PERMISSIONS,
-  SEED_STAFF,
   hashPIN,
   hashPassword,
   hasPermission,
@@ -23,6 +22,7 @@ import {
   verifySSOToken,
   DEFAULT_SSO_SECRET
 } from '../src/auth.js';
+import { SEED_STAFF } from './fixtures/mockStaff.js';
 import { store } from '../src/store.js';
 
 // Ensure test environment globals (localStorage, window, document) are ready

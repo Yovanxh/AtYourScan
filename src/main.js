@@ -7,6 +7,14 @@
 import { store } from './store.js';
 import { supabase } from './supabaseClient.js';
 
+export const isTestEnv = Boolean(
+  (typeof globalThis !== 'undefined' && globalThis.IS_TEST_ENV) ||
+  (typeof process !== 'undefined' &&
+   (process.env?.NODE_ENV === 'test' ||
+    process.env?.VITEST ||
+    process.argv?.some(arg => arg.includes('test') || arg.includes('mocha') || arg.includes('runner'))))
+);
+
 if (typeof window !== 'undefined') {
   window.supabase = supabase;
   window.store = store;
@@ -1812,7 +1820,7 @@ export async function initializeGatewayRouting() {
 
   // GUEST INVARIANT EXCEPTION: Guest table URLs bypass authentication in zero-auth mode
   if (isGuestTableUrl()) {
-    if (typeof store.loadDishes === 'function') {
+    if (!isTestEnv && typeof store.loadDishes === 'function') {
       try {
         await store.loadDishes();
       } catch (err) {
@@ -1853,7 +1861,7 @@ export async function initializeGatewayRouting() {
   // 1. If unauthenticated, render /login gateway immediately (except customer / guest table)
   if (!activeSessionUser) {
     if (isGuestTableUrl() || path === 'customer') {
-      if (typeof store.loadDishes === 'function') {
+      if (!isTestEnv && typeof store.loadDishes === 'function') {
         try {
           await store.loadDishes();
         } catch (err) {
@@ -1929,7 +1937,7 @@ export async function initializeGatewayRouting() {
 }
 
 // Initial application boot in browser environment
-if (typeof window !== 'undefined' && typeof document !== 'undefined') {
+if (typeof window !== 'undefined' && typeof document !== 'undefined' && !isTestEnv) {
   renderNavRail();
   (async () => {
     if (typeof store.loadDishes === 'function') {
@@ -2013,12 +2021,6 @@ if (typeof window !== 'undefined') {
 
 // Guaranteed Boot & Auto-Re-render Watchdog
 async function forceCloudMenuSync() {
-  const isTestEnv = Boolean(
-    typeof process !== 'undefined' &&
-    (process.env.NODE_ENV === 'test' ||
-     process.env.VITEST ||
-     process.argv?.some(arg => arg.includes('test') || arg.includes('mocha') || arg.includes('runner')))
-  );
   if (isTestEnv) return;
 
   const activeStore = (typeof window !== 'undefined' ? window.store : null) || store;
@@ -2039,7 +2041,9 @@ async function forceCloudMenuSync() {
 // Run immediately on boot
 if (typeof window !== 'undefined') {
   window.forceCloudMenuSync = forceCloudMenuSync;
-  forceCloudMenuSync();
+  if (!isTestEnv) {
+    forceCloudMenuSync();
+  }
 }
 
 

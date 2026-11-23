@@ -341,7 +341,8 @@ globalThis.window = {
 
 // Dynamically import project modules after environment globals are ready
 const { store, DEFAULT_MERCHANT, DEFAULT_TERMINAL_PAIRING } = await import('../src/store.js');
-const { ROLES, SEED_STAFF } = await import('../src/auth.js');
+const { ROLES } = await import('../src/auth.js');
+const { SEED_STAFF } = await import('./fixtures/mockStaff.js');
 const main = await import('../src/main.js');
 const { renderOnboardingModal, openOnboardingModal } = await import('../src/components/OnboardingModal.js');
 const { renderTerminalPairingModal, openTerminalPairingModal } = await import('../src/components/TerminalPairingModal.js');

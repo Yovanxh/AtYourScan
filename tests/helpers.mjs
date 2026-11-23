@@ -3,7 +3,30 @@
  * Reference derivations based on PROJECT.md and ORIGINAL_REQUEST.md.
  */
 
+globalThis.IS_TEST_ENV = true;
+if (typeof process !== 'undefined' && process.env) {
+  process.env.NODE_ENV = 'test';
+}
+
 import assert from 'node:assert/strict';
+
+import { 
+  MOCK_SEED_STAFF, 
+  MOCK_TABLES, 
+  MOCK_MENU_ITEMS, 
+  MOCK_ORDERS, 
+  MOCK_OFFER_BANNERS, 
+  SEED_STAFF 
+} from './fixtures/mockData.js';
+
+export { 
+  MOCK_SEED_STAFF, 
+  MOCK_TABLES, 
+  MOCK_MENU_ITEMS, 
+  MOCK_ORDERS, 
+  MOCK_OFFER_BANNERS, 
+  SEED_STAFF 
+};
 
 // --- MOCK ENVIRONMENT SETUP FOR NODE.JS RUNTIME ---
 export function setupTestEnvironment() {
@@ -11,6 +34,13 @@ export function setupTestEnvironment() {
   if (typeof process !== 'undefined' && process.env) {
     process.env.NODE_ENV = 'test';
   }
+  globalThis.__AYS_TEST_FIXTURES__ = {
+    staff: MOCK_SEED_STAFF,
+    tables: MOCK_TABLES,
+    menuItems: MOCK_MENU_ITEMS,
+    orders: MOCK_ORDERS,
+    offerBanners: MOCK_OFFER_BANNERS
+  };
   if (!globalThis.localStorage) {
     const store = new Map();
     globalThis.localStorage = {
