@@ -87,7 +87,7 @@ export const INITIAL_SYSTEM_LOGS = [];
 // Master Audit Logs (Starts empty; real sovereign actions only)
 export const INITIAL_MASTER_AUDIT_LOGS = [];
 
-class ReactiveStore {
+export class ReactiveStore {
   constructor() {
     this.listeners = new Set();
     this.supabase = supabase;
@@ -259,9 +259,13 @@ class ReactiveStore {
     }
 
     if (!isTestEnv) {
-      // In production, strictly initialize orders as empty array [] if no remote orders exist
-      this.orders = [];
-      this.save('ays_orders', this.orders);
+      // In production, load orders from localStorage/cache so active orders survive reloads
+      const venueScopedOrdersKey = (this.venue && this.venue.id && this.venue.id !== INITIAL_VENUE.id)
+        ? `ays_orders_${this.venue.id}`
+        : null;
+      const cachedVenueOrders = venueScopedOrdersKey ? this.load(venueScopedOrdersKey, null) : null;
+      const loadedOrders = cachedVenueOrders !== null ? cachedVenueOrders : this.load('ays_orders', []);
+      this.orders = Array.isArray(loadedOrders) ? loadedOrders : [];
     } else {
       this.orders = this.load('ays_orders', INITIAL_ORDERS);
       this.orders = (this.orders || []).filter(o => !/^AYS-[67]\d{2}/.test(o.id));
@@ -275,7 +279,8 @@ class ReactiveStore {
 
     if (!isTestEnv) {
       this.tables = this.tables.map(tbl => {
-        const hasOrder = tbl.active_order_id && this.orders.some(o => o.id === tbl.active_order_id && o.status !== 'Completed' && o.status !== 'Cancelled');
+        const hasOrder = (tbl.active_order_id && this.orders.some(o => o.id === tbl.active_order_id && o.status !== 'Completed' && o.status !== 'Cancelled'))
+          || this.orders.some(o => (o.table_number === tbl.table_number || o.table_id === tbl.id) && o.status !== 'Completed' && o.status !== 'Cancelled');
         if (!hasOrder) {
           return {
             ...tbl,
@@ -285,8 +290,14 @@ class ReactiveStore {
             seated_at: null,
             active_order_id: null
           };
+        } else {
+          const matchOrder = this.orders.find(o => (o.id === tbl.active_order_id || o.table_number === tbl.table_number || o.table_id === tbl.id) && o.status !== 'Completed' && o.status !== 'Cancelled');
+          return {
+            ...tbl,
+            status: 'Occupied',
+            active_order_id: matchOrder ? matchOrder.id : tbl.active_order_id
+          };
         }
-        return tbl;
       });
       this.save('ays_tables', this.tables);
     }
@@ -3313,21 +3324,44 @@ class ReactiveStore {
     return { success: true, order: finalOrder };
   }
 
-  initRealtimeOrders() {
-    if (isTestEnv || typeof window === 'undefined') return null;
-    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+  initRealtimeOrders(targetVenueId = null, options = {}) {
+    const isForced = options.force || this._forceRealtime;
+    if ((isTestEnv && !isForced) || (typeof window === 'undefined' && !isForced)) return null;
+    const client = options.client || this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || (typeof supabase !== 'undefined' ? supabase : null);
     if (!client || typeof client.channel !== 'function') return null;
+    this._realtimeClient = client;
 
-    if (this._ordersRealtimeChannel) {
+    const venueId = targetVenueId || this.venue?.id || this.venue?.cafe_id || null;
+
+    if (this._ordersRealtimeChannel && this._realtimeVenueId === venueId) {
       return this._ordersRealtimeChannel;
     }
 
+    if (this._ordersRealtimeChannel) {
+      this.cleanupRealtime();
+    }
+
+    this._realtimeVenueId = venueId;
+
     try {
+      const channelFilter = venueId ? `venue_id=eq.${venueId}` : undefined;
+      const postgresChangesConfig = {
+        event: '*',
+        schema: 'public',
+        table: 'orders',
+        ...(channelFilter ? { filter: channelFilter } : {})
+      };
+
       this._ordersRealtimeChannel = client
         .channel('orders-realtime-sync')
-        .on('postgres_changes', { event: '*', schema: 'public', table: 'orders' }, payload => {
+        .on('postgres_changes', postgresChangesConfig, payload => {
           const updated = payload.new;
           if (!updated) return;
+
+          // Defense-in-depth: discard broadcasts for other restaurants on the platform
+          if (venueId && updated.venue_id && updated.venue_id !== venueId) {
+            return;
+          }
 
           console.log("🔔 Realtime order event received in Store:", payload.eventType, updated);
 
@@ -3398,10 +3432,18 @@ class ReactiveStore {
 
       // Also listen for venues table realtime changes for active_sessions
       if (!this._venuesRealtimeChannel) {
+        const venueChangesConfig = {
+          event: 'UPDATE',
+          schema: 'public',
+          table: 'venues',
+          ...(channelFilter ? { filter: `id=eq.${venueId}` } : {})
+        };
+
         this._venuesRealtimeChannel = client
           .channel('venues-realtime-sync')
-          .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'venues' }, payload => {
+          .on('postgres_changes', venueChangesConfig, payload => {
             if (payload.new?.active_sessions) {
+              if (venueId && payload.new.id && payload.new.id !== venueId) return;
               if (!this.venue) this.venue = {};
               this.venue.active_sessions = payload.new.active_sessions;
               this.save('ays_venue', this.venue);
@@ -3417,6 +3459,58 @@ class ReactiveStore {
       console.warn('[Store] Realtime channel init failed:', e);
       return null;
     }
+  }
+
+  /**
+   * Cleanly teardown realtime subscriptions without leaving dangling WebSocket listeners
+   */
+  cleanupRealtime() {
+    const client = this._realtimeClient || this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || (typeof supabase !== 'undefined' ? supabase : null);
+
+    if (this._ordersRealtimeChannel) {
+      try {
+        if (typeof this._ordersRealtimeChannel.unsubscribe === 'function') {
+          this._ordersRealtimeChannel.unsubscribe();
+        }
+        if (client && typeof client.removeChannel === 'function') {
+          client.removeChannel(this._ordersRealtimeChannel);
+        }
+      } catch (e) {
+        console.warn('[Store] Error unsubscribing _ordersRealtimeChannel:', e);
+      }
+      this._ordersRealtimeChannel = null;
+    }
+
+    if (this._venuesRealtimeChannel) {
+      try {
+        if (typeof this._venuesRealtimeChannel.unsubscribe === 'function') {
+          this._venuesRealtimeChannel.unsubscribe();
+        }
+        if (client && typeof client.removeChannel === 'function') {
+          client.removeChannel(this._venuesRealtimeChannel);
+        }
+      } catch (e) {
+        console.warn('[Store] Error unsubscribing _venuesRealtimeChannel:', e);
+      }
+      this._venuesRealtimeChannel = null;
+    }
+
+    if (this.supabaseChannel) {
+      try {
+        if (typeof this.supabaseChannel.unsubscribe === 'function') {
+          this.supabaseChannel.unsubscribe();
+        }
+        if (client && typeof client.removeChannel === 'function') {
+          client.removeChannel(this.supabaseChannel);
+        }
+      } catch (e) {
+        console.warn('[Store] Error unsubscribing supabaseChannel:', e);
+      }
+      this.supabaseChannel = null;
+    }
+
+    this._realtimeVenueId = null;
+    this._realtimeClient = null;
   }
 
   /**

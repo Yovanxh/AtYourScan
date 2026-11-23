@@ -27,6 +27,77 @@ export function renderCustomerView(container, store, options = {}) {
   let isSubmittingOrder = false;
   let orderSubmitError = null;
 
+  // Resolve target venue ID
+  const getVenueId = () => {
+    if (typeof window !== 'undefined' && window.location) {
+      const p = new URLSearchParams(window.location.search);
+      const q = p.get('cafe') || p.get('cafe_id') || p.get('cafeId') || p.get('venue');
+      if (q) return q;
+      const pathMatch = window.location.pathname && window.location.pathname.match(/\/v\/([^\/]+)/);
+      if (pathMatch) return decodeURIComponent(pathMatch[1]);
+    }
+    return store.venue?.id || 'cafe-first-way-cafe-hotc';
+  };
+
+  const venueId = getVenueId();
+
+  // Helper to query and isolate active orders for the current customer session
+  function getCustomerActiveOrders() {
+    const targetVId = store.venue?.id || store.venue?.cafe_id || venueId;
+    const currentTNum = tableNumber || (store.cart && store.cart.table_number) || null;
+    if (!currentTNum) return [];
+
+    const scopedSessionKey = targetVId && currentTNum ? `ays_table_session_${targetVId}_${currentTNum}` : 'ays_table_session';
+    const scopedOrderIdKey = targetVId && currentTNum ? `ays_active_order_id_${targetVId}_${currentTNum}` : 'ays_active_order_id';
+
+    let myToken = null;
+    let myActiveOrderId = null;
+    if (typeof localStorage !== 'undefined') {
+      try {
+        myToken = localStorage.getItem(scopedSessionKey) || localStorage.getItem('ays_table_session');
+        myActiveOrderId = localStorage.getItem(scopedOrderIdKey) || localStorage.getItem('ays_active_order_id');
+      } catch {}
+    }
+
+    return (store.orders || []).filter(o => {
+      // Must match table number
+      const isSameTable = (
+        o.table_number === currentTNum ||
+        o.table_id === currentTNum ||
+        String(o.table_number) === String(currentTNum) ||
+        String(o.table_id) === String(currentTNum)
+      );
+      if (!isSameTable) return false;
+
+      // Must be an active, un-finalized order
+      const isUnfinalized = o.status !== 'Completed' && o.status !== 'Cancelled' && o.status !== 'Void';
+      if (!isUnfinalized) return false;
+
+      // In-memory match: placed by this view instance
+      if (lastPlacedOrder && o.id === lastPlacedOrder.id) {
+        return true;
+      }
+
+      // If order has session_token
+      if (o.session_token) {
+        if (myToken) {
+          return o.session_token === myToken;
+        }
+        if (myActiveOrderId && o.id === myActiveOrderId) {
+          return true;
+        }
+        return false;
+      }
+
+      // If order has no session_token (e.g. legacy/POS), only match if explicitly stored in this customer's active order ID
+      if (myActiveOrderId && o.id === myActiveOrderId) {
+        return true;
+      }
+
+      return false;
+    });
+  }
+
   function render() {
     let targetTenant = null;
     const cafes = Array.isArray(store.cafes) ? store.cafes : [];
@@ -276,10 +347,8 @@ export function renderCustomerView(container, store, options = {}) {
     }
 
     // CASE C: If current diner has an active order on this table, display order status
-    const activeOrderForTable = (store.orders || []).find(
-      o => (o.id === myActiveOrderId || o.id === lastPlacedOrder?.id || (o.table_number === tableNumber && o.session_token === myToken))
-        && o.status !== 'Completed' && o.status !== 'Cancelled' && o.status !== 'Void'
-    ) || (lastPlacedOrder && (lastPlacedOrder.table_number === tableNumber) && lastPlacedOrder.status !== 'Completed' && lastPlacedOrder.status !== 'Cancelled' ? lastPlacedOrder : null);
+    const customerOrders = getCustomerActiveOrders();
+    const activeOrderForTable = customerOrders[0] || (lastPlacedOrder && (lastPlacedOrder.table_number === tableNumber) && lastPlacedOrder.status !== 'Completed' && lastPlacedOrder.status !== 'Cancelled' ? lastPlacedOrder : null);
 
     if (activeOrderForTable) {
       if (activeTab === 'add_dishes') {
@@ -323,16 +392,25 @@ export function renderCustomerView(container, store, options = {}) {
   // Active Order Status / Dine-In Tab View for the verified session owner
   function renderActiveOrderView(orderId) {
     const venue = store.venue || { name: 'Restaurant' };
-    const tableOrders = (store.orders || []).filter(
-      o => (o.table_number === tableNumber || o.table_id === tableNumber || String(o.table_number) === String(tableNumber) || String(o.table_id) === String(tableNumber)) 
-        && o.status !== 'Completed' && o.status !== 'Cancelled' && o.status !== 'Void'
-    );
+    const tableOrders = getCustomerActiveOrders();
     let activeOrder = (orderId ? (store.orders || []).find(o => o.id === orderId) : null)
       || tableOrders[0]
       || lastPlacedOrder;
 
+    // Security guard: Ensure activeOrder belongs to this customer's active orders
+    if (activeOrder && !tableOrders.some(o => o.id === activeOrder.id) && (!lastPlacedOrder || activeOrder.id !== lastPlacedOrder.id)) {
+      activeOrder = tableOrders[0] || null;
+    }
+    if (!activeOrder && tableOrders.length > 0) {
+      activeOrder = tableOrders[0];
+    }
     if (!activeOrder && lastPlacedOrder) {
       activeOrder = lastPlacedOrder;
+    }
+    if (!activeOrder) {
+      activeTab = 'menu';
+      render();
+      return;
     }
 
     // Dynamic UPI verification page should remain closed while displaying active order status
@@ -364,9 +442,9 @@ export function renderCustomerView(container, store, options = {}) {
     }
 
     let items = (activeOrder?.items && Array.isArray(activeOrder.items) && activeOrder.items.length > 0) ? activeOrder.items : [];
-    if (items.length === 0) {
+    if (items.length === 0 && ordId) {
       const match = (store.orders || []).find(o => 
-        (o.id === ordId || o.table_number === tNum || String(o.table_number) === String(tNum)) &&
+        o.id === ordId &&
         o.items && Array.isArray(o.items) && o.items.length > 0
       );
       if (match) items = match.items;
@@ -600,11 +678,8 @@ export function renderCustomerView(container, store, options = {}) {
       return matchCat && matchSearch && matchDiet;
     });
 
-    // Check for existing active orders for this table
-    const tableOrders = store.orders.filter(
-      o => (o.table_number === tableNumber || o.table_id === tableNumber || String(o.table_number) === String(tableNumber) || String(o.table_id) === String(tableNumber)) 
-        && o.status !== 'Completed' && o.status !== 'Cancelled' && o.status !== 'Void'
-    );
+    // Check for existing active orders for this table (strictly isolated to current customer session)
+    const tableOrders = getCustomerActiveOrders();
     if (lastPlacedOrder && lastPlacedOrder.status !== 'Completed' && lastPlacedOrder.status !== 'Cancelled' && lastPlacedOrder.status !== 'Void') {
       const match = store.orders.find(o => o.id === lastPlacedOrder.id);
       if (match) lastPlacedOrder = match;
@@ -2051,6 +2126,7 @@ export function renderCustomerView(container, store, options = {}) {
           store.setTableSession(tableId, sessionToken, order.id);
         }
         try {
+          localStorage.setItem(scopedOrderIdKey, order.id);
           localStorage.setItem('ays_active_order_id', order.id);
           if (orderPayload.items && orderPayload.items.length > 0) {
             localStorage.setItem('ays_last_cart_items', JSON.stringify(orderPayload.items));
@@ -2466,16 +2542,6 @@ export function renderCustomerView(container, store, options = {}) {
       }
     });
 
-    const onOrderRejected = (e) => {
-      const formSection = container.querySelector('#utr-form-section');
-      const waitingCard = container.querySelector('#utr-waiting-card');
-      const rejectedCard = container.querySelector('#utr-rejected-card');
-      if (waitingCard) waitingCard.classList.add('hidden');
-      if (formSection) formSection.classList.add('hidden');
-      if (rejectedCard) rejectedCard.classList.remove('hidden');
-    };
-    window.removeEventListener('ORDER_REJECTED', onOrderRejected);
-    window.addEventListener('ORDER_REJECTED', onOrderRejected);
 
     const confirmUPIBtn = container.querySelector('#btn-confirm-upi-paid');
     if (confirmUPIBtn) {
@@ -2647,20 +2713,6 @@ export function renderCustomerView(container, store, options = {}) {
     render();
   });
 
-  // Resolve target venue ID
-  const getVenueId = () => {
-    if (typeof window !== 'undefined' && window.location) {
-      const p = new URLSearchParams(window.location.search);
-      const q = p.get('cafe') || p.get('cafe_id') || p.get('cafeId') || p.get('venue');
-      if (q) return q;
-      const pathMatch = window.location.pathname && window.location.pathname.match(/\/v\/([^\/]+)/);
-      if (pathMatch) return decodeURIComponent(pathMatch[1]);
-    }
-    return store.venue?.id || 'cafe-first-way-cafe-hotc';
-  };
-
-  const venueId = getVenueId();
-
   const onSessionCleared = (e) => {
     const clearedTable = e.detail?.tableNumber;
     if (!clearedTable || clearedTable == tableNumber) {
@@ -2754,7 +2806,9 @@ export function renderCustomerView(container, store, options = {}) {
   triggerFreshMenuLoad();
 
   return () => {
-    unsubscribe();
+    if (typeof unsubscribe === 'function') {
+      unsubscribe();
+    }
     if (typeof window !== 'undefined') {
       window.removeEventListener('ORDER_REJECTED', onOrderRejected);
       window.removeEventListener('TABLE_SESSION_CLEARED', onSessionCleared);
