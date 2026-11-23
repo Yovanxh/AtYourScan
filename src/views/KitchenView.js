@@ -105,6 +105,8 @@ export class KitchenView {
 
       // 1. Accept any order verified by admin, prepaid, or on an active dine-in tab
       const isApproved = 
+        order.status === 'in_kitchen' ||
+        order.status === 'Preparing' ||
         order.verification_status === 'APPROVED' || 
         order.payment_status === 'PAID' || 
         order.payment_method === 'PAY_LATER';

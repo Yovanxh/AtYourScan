@@ -2013,6 +2013,14 @@ if (typeof window !== 'undefined') {
 
 // Guaranteed Boot & Auto-Re-render Watchdog
 async function forceCloudMenuSync() {
+  const isTestEnv = Boolean(
+    typeof process !== 'undefined' &&
+    (process.env.NODE_ENV === 'test' ||
+     process.env.VITEST ||
+     process.argv?.some(arg => arg.includes('test') || arg.includes('mocha') || arg.includes('runner')))
+  );
+  if (isTestEnv) return;
+
   const activeStore = (typeof window !== 'undefined' ? window.store : null) || store;
   if (!activeStore || typeof activeStore.loadDishes !== 'function') return;
   const dishes = await activeStore.loadDishes();

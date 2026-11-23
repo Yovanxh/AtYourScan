@@ -22,6 +22,10 @@ export function setupTestEnvironment() {
     };
   }
 
+  if (!globalThis.alert) {
+    globalThis.alert = () => {};
+  }
+
   if (!globalThis.KeyboardEvent) {
     globalThis.KeyboardEvent = class KeyboardEvent {
       constructor(type, init = {}) {
@@ -86,6 +90,7 @@ export function setupTestEnvironment() {
                 value: '',
                 dataset: {},
                 classList: { add: () => {}, remove: () => {}, contains: () => false },
+                remove: () => {},
                 addEventListener: () => {},
                 dispatchEvent: () => {},
                 click: () => {}
@@ -129,6 +134,7 @@ export function setupTestEnvironment() {
                 value: '',
                 dataset: {},
                 classList: { add: () => {}, remove: () => {}, contains: () => false },
+                remove: () => {},
                 addEventListener: (event, handler) => {
                   if (!listeners.has(selector + ':' + event)) listeners.set(selector + ':' + event, []);
                   listeners.get(selector + ':' + event).push(handler);
@@ -153,7 +159,16 @@ export function setupTestEnvironment() {
             }
             return elementCache.get(selector);
           },
-          querySelectorAll: (selector) => []
+          querySelectorAll: (selector) => {
+            if (!selector) return [];
+            const parts = selector.split(',').map(s => s.trim());
+            const matched = [];
+            for (const part of parts) {
+              const item = el.querySelector(part);
+              if (item) matched.push(item);
+            }
+            return matched;
+          }
         };
         return el;
       }

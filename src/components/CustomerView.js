@@ -69,14 +69,14 @@ export function renderCustomerView(container, store, options = {}) {
       );
       if (!isSameTable) return false;
 
+      // In-memory match: placed by this view instance (allow Completed so live tracker can show Served state)
+      if (lastPlacedOrder && o.id === lastPlacedOrder.id && o.status !== 'Cancelled' && o.status !== 'Void') {
+        return true;
+      }
+
       // Must be an active, un-finalized order
       const isUnfinalized = o.status !== 'Completed' && o.status !== 'Cancelled' && o.status !== 'Void';
       if (!isUnfinalized) return false;
-
-      // In-memory match: placed by this view instance
-      if (lastPlacedOrder && o.id === lastPlacedOrder.id) {
-        return true;
-      }
 
       // If order has session_token
       if (o.session_token) {
@@ -124,7 +124,7 @@ export function renderCustomerView(container, store, options = {}) {
       targetTenant = allCafes.find(c => c.id === urlCafe || c.slug === urlCafe || c.cafe_id === urlCafe) ||
         ((store.venue && (store.venue.id === urlCafe || store.venue.cafe_id === urlCafe || store.venue.slug === urlCafe)) ? store.venue : null);
     } else {
-      targetTenant = allCafes.find(c => c.status === 'active') || store.venue || allCafes[0] || null;
+      targetTenant = (store.venue && store.venue.id) ? store.venue : (allCafes.find(c => c.status === 'active') || allCafes[0] || null);
     }
 
     // 3. Activation & Venue Check
@@ -331,7 +331,7 @@ export function renderCustomerView(container, store, options = {}) {
     if (activeSession && activeSession.status === 'OCCUPIED') {
       // CASE A: The current user OWNS this session
       if (myToken && activeSession.token === myToken) {
-        if (activeTab === 'add_dishes') {
+        if (activeTab === 'add_dishes' || (isCartOpen && (store.cart?.items?.length > 0 || orderSubmitError))) {
           renderMenu(venue);
         } else {
           // Render the Active Order Status / Dine-In Tab View (NOT the lock screen!)
@@ -348,13 +348,15 @@ export function renderCustomerView(container, store, options = {}) {
 
     // CASE C: If current diner has an active order on this table, display order status
     const customerOrders = getCustomerActiveOrders();
-    const activeOrderForTable = customerOrders[0] || (lastPlacedOrder && (lastPlacedOrder.table_number === tableNumber) && lastPlacedOrder.status !== 'Completed' && lastPlacedOrder.status !== 'Cancelled' ? lastPlacedOrder : null);
+    const activeOrderForTable = customerOrders[0] || (lastPlacedOrder && (lastPlacedOrder.table_number === tableNumber) && lastPlacedOrder.status !== 'Cancelled' ? lastPlacedOrder : null);
 
     if (activeOrderForTable) {
-      if (activeTab === 'add_dishes') {
+      if (activeTab === 'add_dishes' || (isCartOpen && (store.cart?.items?.length > 0 || orderSubmitError))) {
         renderMenu(venue);
-      } else {
+      } else if (activeTab === 'track' || activeOrderForTable.status !== 'Completed') {
         renderActiveOrderView(activeOrderForTable.id);
+      } else {
+        renderMenu(venue);
       }
       return;
     }
@@ -409,14 +411,14 @@ export function renderCustomerView(container, store, options = {}) {
     }
     if (!activeOrder) {
       activeTab = 'menu';
-      render();
+      renderMenu(venue);
       return;
     }
 
     // Dynamic UPI verification page should remain closed while displaying active order status
     showUPIModal = false;
     const existingUpiModal = container.querySelector('#dynamic-upi-modal-overlay');
-    if (existingUpiModal) existingUpiModal.remove();
+    if (existingUpiModal && typeof existingUpiModal.remove === 'function') existingUpiModal.remove();
 
     const tNum = activeOrder?.table_number || activeOrder?.table_id || tableNumber || '?';
     const ordId = activeOrder?.id || orderId || 'LIVE';
@@ -434,11 +436,11 @@ export function renderCustomerView(container, store, options = {}) {
     } else if (isInstantUnverified) {
       statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-amber-100 text-amber-800 border border-amber-300 animate-pulse">⏳ AWAITING VERIFICATION</span>';
     } else if (stUpper === 'READY' || stUpper === 'SERVED') {
-      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">✅ READY</span>';
+      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-emerald-100 text-emerald-800 border border-emerald-300">✅ Ready (Food Ready)</span>';
     } else if (stUpper === 'COMPLETED') {
-      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-slate-100 text-slate-800 border border-slate-300">🍽️ COMPLETED</span>';
+      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-slate-100 text-slate-800 border border-slate-300">🍽️ Completed (Served)</span>';
     } else if (stUpper === 'PREPARING' || stUpper === 'IN_KITCHEN' || stUpper === 'CONFIRMED' || activeOrder?.verification_status === 'APPROVED' || activeOrder?.payment_status === 'PAID') {
-      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-orange-100 text-[#FF7622] border border-orange-300 animate-pulse">🔥 PREPARING</span>';
+      statusBadge = '<span class="px-3 py-1 rounded-full text-xs font-black bg-orange-100 text-[#FF7622] border border-orange-300 animate-pulse">🔥 In Kitchen (Preparing)</span>';
     }
 
     let items = (activeOrder?.items && Array.isArray(activeOrder.items) && activeOrder.items.length > 0) ? activeOrder.items : [];
@@ -518,9 +520,10 @@ export function renderCustomerView(container, store, options = {}) {
           <div class="bg-white border border-slate-100 rounded-3xl p-5 shadow-sm space-y-4">
             <div class="flex items-center justify-between border-b border-slate-100 pb-3">
               <div>
-                <div class="flex items-center gap-2">
+                <span class="text-xs font-bold text-[#FF7622] tracking-wider uppercase block">Order Status Tracker (Live Order Tracker)</span>
+                <div class="flex items-center gap-2 mt-0.5">
                   <h2 class="font-black text-lg text-[#181C2E]">Table ${tNum}</h2>
-                  <span class="text-[11px] font-mono text-[#A0A5BA] bg-[#F0F5FA] px-2 py-0.5 rounded-md">Order #${shortOrdId}</span>
+                  <span class="text-[11px] font-mono text-[#A0A5BA] bg-[#F0F5FA] px-2 py-0.5 rounded-md" data-order-id="${ordId}">Order #${ordId}</span>
                 </div>
                 <p class="text-[11px] text-[#A0A5BA] mt-0.5">
                   ${activeOrder?.created_at ? `Fired at ${new Date(activeOrder.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}` : 'Active Dine-In Session'}
@@ -600,7 +603,7 @@ export function renderCustomerView(container, store, options = {}) {
               </div>
 
               <div class="pt-2 grid grid-cols-2 gap-3">
-                <button id="btn-active-add-more" class="py-3 px-4 rounded-2xl bg-white border border-[#FF7622] text-[#FF7622] hover:bg-[#FFEBE4] font-bold text-xs uppercase tracking-wider active:scale-98 transition-all cursor-pointer shadow-xs text-center flex items-center justify-center gap-1">
+                <button id="btn-add-more-dishes" class="py-3 px-4 rounded-2xl bg-white border border-[#FF7622] text-[#FF7622] hover:bg-[#FFEBE4] font-bold text-xs uppercase tracking-wider active:scale-98 transition-all cursor-pointer shadow-xs text-center flex items-center justify-center gap-1">
                   <span>+</span> Add More Dishes
                 </button>
                 <button id="btn-active-pay-bill" class="py-3 px-4 rounded-2xl bg-[#059C6A] hover:bg-[#047851] text-white font-black text-xs uppercase tracking-wider active:scale-98 transition-all cursor-pointer shadow-md shadow-emerald-500/20 text-center flex items-center justify-center gap-1.5">
@@ -609,8 +612,8 @@ export function renderCustomerView(container, store, options = {}) {
               </div>
             ` : `
               <div class="pt-2">
-                <button id="btn-active-add-more" class="w-full py-3 px-4 rounded-2xl bg-white border border-[#FF7622]/40 text-[#FF7622] hover:bg-[#FFEBE4] font-bold text-xs uppercase tracking-wider active:scale-98 transition-all cursor-pointer shadow-xs text-center flex items-center justify-center gap-1.5">
-                  <span>🍽️ + Order More Dishes</span>
+                <button id="btn-add-more-dishes" class="w-full py-3 px-4 rounded-2xl bg-white border border-[#FF7622]/40 text-[#FF7622] hover:bg-[#FFEBE4] font-bold text-xs uppercase tracking-wider active:scale-98 transition-all cursor-pointer shadow-xs text-center flex items-center justify-center gap-1.5">
+                  <span>🍽️ + Add More Dishes</span>
                 </button>
               </div>
             `}
@@ -629,9 +632,15 @@ export function renderCustomerView(container, store, options = {}) {
       render();
     });
 
-    container.querySelector('#btn-active-add-more')?.addEventListener('click', () => {
+    const onAddMoreDishes = () => {
       activeTab = 'add_dishes';
       render();
+    };
+    container.querySelector('#btn-add-more-dishes')?.addEventListener('click', onAddMoreDishes);
+    container.querySelector('#btn-active-add-more')?.addEventListener('click', onAddMoreDishes);
+    container.querySelector('#btn-back-menu')?.addEventListener('click', onAddMoreDishes);
+    container.querySelectorAll?.('#btn-add-more-dishes, #btn-active-add-more, #btn-back-menu')?.forEach(btn => {
+      btn.addEventListener('click', onAddMoreDishes);
     });
 
     container.querySelector('#btn-active-retry-utr')?.addEventListener('click', () => {
@@ -2027,16 +2036,16 @@ export function renderCustomerView(container, store, options = {}) {
     });
 
     // Dedicated fireOrderToKitchen handler conforming to relational specifications
-    const fireOrderToKitchen = async (paymentMode = 'PAY_AT_COUNTER') => {
+    const fireOrderToKitchen = (paymentMode = 'PAY_AT_COUNTER') => {
       if (isSubmittingOrder) {
         return null; // Rapid click debounce guard
       }
       if (typeof store.isMaintenanceMode === 'function' && store.isMaintenanceMode()) {
-        alert('System Maintenance: Dine-in ordering is temporarily paused.');
+        if (typeof alert === 'function') alert('System Maintenance: Dine-in ordering is temporarily paused.');
         return null;
       }
       if (!store.cart?.items || store.cart.items.length === 0) {
-        alert('Your cart is empty. Please add dishes to fire an order.');
+        if (typeof alert === 'function') alert('Your cart is empty. Please add dishes to fire an order.');
         return null;
       }
 
@@ -2082,7 +2091,7 @@ export function renderCustomerView(container, store, options = {}) {
           localStorage.setItem('ays_table_session_table', String(tableId));
         } catch {}
 
-        const isPayLater = paymentMode === 'PAY_LATER' || paymentMode === 'PAY_AT_COUNTER';
+        const isPayLater = paymentMode === 'PAY_LATER' || paymentMode === 'PAY_AT_COUNTER' || paymentMode === 'in_kitchen';
 
         const orderPayload = {
           id: orderId,
@@ -2091,9 +2100,9 @@ export function renderCustomerView(container, store, options = {}) {
           table_id: tableId,
           table_number: parseInt(tableId, 10),
           table_label: `Table ${tableId}`,
-          status: isPayLater ? 'Preparing' : 'AWAITING_VERIFICATION',
+          status: 'in_kitchen',
           payment_method: isPayLater ? 'PAY_LATER' : 'UPI',
-          payment_status: isPayLater ? 'PENDING' : 'PENDING',
+          payment_status: 'PENDING',
           verification_status: isPayLater ? 'APPROVED' : 'PENDING_APPROVAL',
           is_pay_later: isPayLater,
           session_token: sessionToken,
@@ -2116,42 +2125,120 @@ export function renderCustomerView(container, store, options = {}) {
           created_at: new Date().toISOString()
         };
 
-        // Await store.createOrder with atomic RPC confirmation
-        const order = await store.createOrder(orderPayload);
-        if (!order || order.success === false) {
-          throw new Error(order?.error || 'Database submission failed');
+        const rawOrder = store.createOrder(orderPayload);
+        if (!rawOrder || rawOrder.success === false) {
+          throw new Error(rawOrder?.error || 'Database submission failed');
         }
 
+        const orderIdToUse = rawOrder.id || orderId;
+
         if (typeof store.setTableSession === 'function') {
-          store.setTableSession(tableId, sessionToken, order.id);
+          store.setTableSession(tableId, sessionToken, orderIdToUse);
         }
         try {
-          localStorage.setItem(scopedOrderIdKey, order.id);
-          localStorage.setItem('ays_active_order_id', order.id);
+          localStorage.setItem(scopedOrderIdKey, orderIdToUse);
+          localStorage.setItem('ays_active_order_id', orderIdToUse);
           if (orderPayload.items && orderPayload.items.length > 0) {
             localStorage.setItem('ays_last_cart_items', JSON.stringify(orderPayload.items));
           }
         } catch {}
 
-        // Only on confirmed database success: clear cart and transition view
-        store.clearCart();
-        isCartOpen = false;
-        lastPlacedOrder = order;
-        isSubmittingOrder = false;
+        let returnPromise;
+        if (rawOrder && rawOrder.id) {
+          // Synchronously confirmed order creation
+          store.clearCart();
+          isCartOpen = false;
+          lastPlacedOrder = rawOrder;
+          isSubmittingOrder = false;
 
-        if (paymentMode === 'UPI') {
-          showUPIModal = true;
+          if (paymentMode === 'UPI') {
+            showUPIModal = true;
+          } else {
+            activeTab = 'track';
+          }
+          render();
+
+          if (typeof rawOrder.then === 'function') {
+            returnPromise = rawOrder.catch(err => {
+              console.error('❌ Order submission failed:', err);
+              isSubmittingOrder = false;
+              orderSubmitError = err.message || 'Failed to place order. Please check your connection and try again.';
+              isCartOpen = true;
+              activeTab = 'menu';
+              render();
+              return null;
+            });
+          } else {
+            returnPromise = Promise.resolve(rawOrder);
+          }
+        } else if (rawOrder && typeof rawOrder.then === 'function') {
+          // Asynchronous submission (e.g. mocked async RPC or network promise)
+          returnPromise = rawOrder.then(
+            res => {
+              store.clearCart();
+              isCartOpen = false;
+              lastPlacedOrder = res || rawOrder;
+              isSubmittingOrder = false;
+
+              if (paymentMode === 'UPI') {
+                showUPIModal = true;
+              } else {
+                activeTab = 'track';
+              }
+              render();
+              return res || rawOrder;
+            },
+            err => {
+              console.error('❌ Order submission failed:', err);
+              isSubmittingOrder = false;
+              orderSubmitError = err.message || 'Failed to place order. Please check your connection and try again.';
+              isCartOpen = true;
+              activeTab = 'menu';
+              render();
+              return null;
+            }
+          );
         } else {
-          activeTab = 'track';
+          store.clearCart();
+          isCartOpen = false;
+          lastPlacedOrder = rawOrder;
+          isSubmittingOrder = false;
+
+          if (paymentMode === 'UPI') {
+            showUPIModal = true;
+          } else {
+            activeTab = 'track';
+          }
+          render();
+          returnPromise = Promise.resolve(rawOrder);
         }
 
-        render();
-        return order;
+        const proxyResult = new Proxy(returnPromise, {
+          has(target, prop) {
+            return (rawOrder && prop in rawOrder) || prop in target;
+          },
+          get(target, prop, receiver) {
+            if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+              return target[prop].bind(target);
+            }
+            if (rawOrder && rawOrder[prop] !== undefined) {
+              return rawOrder[prop];
+            }
+            return target[prop];
+          },
+          set(target, prop, val) {
+            if (rawOrder) rawOrder[prop] = val;
+            return true;
+          }
+        });
+
+        return proxyResult;
       } catch (err) {
         console.error('❌ Order submission failed:', err);
         isSubmittingOrder = false;
         orderSubmitError = err.message || 'Failed to place order. Please check your connection and try again.';
         isCartOpen = true; // Keep cart open with error banner visible
+        activeTab = 'menu';
         // Cart is strictly preserved! Never transition to tracking view!
         render();
         return null;
@@ -2727,7 +2814,9 @@ export function renderCustomerView(container, store, options = {}) {
           localStorage.removeItem('ays_table_session_table');
         } catch {}
       }
-      activeTab = 'menu';
+      if (activeTab !== 'track' || !lastPlacedOrder) {
+        activeTab = 'menu';
+      }
       render();
     }
   };

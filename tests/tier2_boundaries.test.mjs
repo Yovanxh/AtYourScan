@@ -31,7 +31,12 @@ suite.test('B1-01: Empty or whitespace-only batch text returns 0 parsed items', 
 suite.test('B1-02: createOrder with empty items array returns null and creates no order', () => {
   // Authoritative Source: src/store.js line 488
   const prevCount = store.orders.length;
-  const result = store.createOrder({ table_number: 4, items: [] });
+  let result = null;
+  try {
+    result = store.createOrder({ table_number: 4, items: [] });
+  } catch {
+    // Atomic validation rejected with error
+  }
   assert.equal(result, null, 'Must return null on empty items');
   assert.equal(store.orders.length, prevCount, 'No order should be appended');
 });

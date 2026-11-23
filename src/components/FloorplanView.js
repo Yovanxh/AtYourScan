@@ -273,10 +273,14 @@ export function renderFloorplanView(container, reactiveStore) {
                     let statusPill = 'bg-[#F0F5FA] text-[#646982]';
                     let statusText = 'Vacant';
 
-                    if (isFoodReady) {
+                    if (isFoodReady || t.status === 'Food Ready') {
                       borderClass = 'border-[#059C6A] ring-2 ring-emerald-100 bg-[#EBF7F2]/40';
                       statusPill = 'bg-[#EBF7F2] text-[#059C6A] font-bold';
                       statusText = 'Food Ready';
+                    } else if (t.status === 'Active Ordering') {
+                      borderClass = 'border-[#FF7622] ring-2 ring-orange-100 bg-[#FFEBE4]/30';
+                      statusPill = 'bg-[#FFEBE4] text-[#FF7622] font-bold';
+                      statusText = 'Active Ordering';
                     } else if (isPreparing) {
                       borderClass = 'border-amber-400 ring-2 ring-amber-100 bg-amber-50/30';
                       statusPill = 'bg-amber-100 text-amber-800 font-bold';

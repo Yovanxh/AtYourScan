@@ -65,12 +65,15 @@ export function generateUPIDeepLink(order, venue) {
   const upiId = venue?.upi_id || 'vanshwaghre-1@okicici';
   const payeeName = venue?.name || 'First Way Cafe';
   const amount = order.total_amount ?? 0;
+  const tablePart = order.table_number ? ` Table ${order.table_number}` : '';
+  const transactionNote = order.id ? `Order ${order.id}${tablePart}` : '';
 
   return buildUPIDeepLink({
     upiId,
     payeeName,
     amount,
-    currency: 'INR'
+    currency: 'INR',
+    transactionNote
   });
 }
 
@@ -94,4 +97,14 @@ export function isMobileDevice() {
   const hasTouch = (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0) || ('ontouchstart' in window);
 
   return isMobileUA || (isMobileWidth && hasTouch);
+}
+
+/**
+ * Generate a realistic NPCI Unique Transaction Reference (UTR) for simulation
+ * @returns {string} e.g. AYS-UPI-839201948271
+ */
+export function generateMockUTR() {
+  const dateStr = Date.now().toString().slice(-6);
+  const randomSuffix = Math.floor(100000 + Math.random() * 900000);
+  return `AYS-UPI-${dateStr}${randomSuffix}`;
 }

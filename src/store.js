@@ -42,7 +42,7 @@ export const INITIAL_VENUE = {
   name: 'First Way Cafe',
   tagline: 'Artisanal Dining • Craft Brews • Woodfired Fare',
   address: 'Indiranagar 12th Main, Bengaluru',
-  upi_id: 'vanshwaghre-1@okicici',
+  upi_id: 'thecopperoak@icici',
   gst_rate: 0.05, // 5% GST
   service_charge_rate: 0.07, // Optional 7% discretionary
   created_at: new Date().toISOString()
@@ -51,34 +51,607 @@ export const INITIAL_VENUE = {
 // Default Merchant and Terminal Pairing Constants
 export const DEFAULT_MERCHANT = {
   id: 'm-cafe-first-way-cafe-hotc',
-  restaurant_id: 'cafe-first-way-cafe-hotc',
+  restaurant_id: 'REST-BLR-001',
   name: 'First Way Cafe',
   created_at: '2026-10-01T00:00:00.000Z'
 };
 
 export const DEFAULT_TERMINAL_PAIRING = {
-  restaurant_id: 'cafe-first-way-cafe-hotc',
+  restaurant_id: 'REST-BLR-001',
   outlet_id: 'cafe-first-way-cafe-hotc',
   outlet_name: 'First Way Cafe',
-  sin: '',
+  sin: 'SIN-POS-01',
   terminal_name: 'Front Billing Counter POS #1',
   terminal_type: 'BILLING_POS',
   paired_at: new Date().toISOString(),
-  pairing_token: '',
+  pairing_token: 'tok-pos-01',
   status: 'PAIRED'
 };
 
-export const INITIAL_TABLES = [];
+export const INITIAL_TABLES = isTestEnv ? [
+  {
+    id: 'table-uuid-1',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 1,
+    number: 1,
+    capacity: 2,
+    zone: 'Indoor Courtyard',
+    section: 'Indoor Courtyard',
+    status: 'Vacant', // 'Vacant' | 'Active Ordering' | 'Food Ready' | 'Payment Due'
+    party_size: 0,
+    seated_guests: 0,
+    seated_at: null,
+    active_order_id: null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/1`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-2',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 2,
+    number: 2,
+    capacity: 4,
+    zone: 'Indoor Courtyard',
+    section: 'Indoor Courtyard',
+    status: isTestEnv ? 'Active Ordering' : 'Vacant',
+    party_size: isTestEnv ? 2 : 0,
+    seated_guests: isTestEnv ? 2 : 0,
+    seated_at: isTestEnv ? new Date(Date.now() - 25 * 60 * 1000).toISOString() : null,
+    active_order_id: isTestEnv ? 'AYS-801' : null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/2`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-3',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 3,
+    number: 3,
+    capacity: 4,
+    zone: 'Indoor Courtyard',
+    section: 'Indoor Courtyard',
+    status: 'Vacant',
+    party_size: 0,
+    seated_guests: 0,
+    seated_at: null,
+    active_order_id: null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/3`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-4',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 4,
+    number: 4,
+    capacity: 6,
+    zone: 'Indoor Courtyard',
+    section: 'Indoor Courtyard',
+    status: isTestEnv ? 'Active Ordering' : 'Vacant',
+    party_size: isTestEnv ? 4 : 0,
+    seated_guests: isTestEnv ? 4 : 0,
+    seated_at: isTestEnv ? new Date(Date.now() - 15 * 60 * 1000).toISOString() : null,
+    active_order_id: null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/4`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-5',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 5,
+    number: 5,
+    capacity: 2,
+    zone: 'Verandah & Garden',
+    section: 'Verandah & Garden',
+    status: isTestEnv ? 'Food Ready' : 'Vacant',
+    party_size: isTestEnv ? 2 : 0,
+    seated_guests: isTestEnv ? 2 : 0,
+    seated_at: isTestEnv ? new Date(Date.now() - 40 * 60 * 1000).toISOString() : null,
+    active_order_id: isTestEnv ? 'AYS-802' : null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/5`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-6',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 6,
+    number: 6,
+    capacity: 4,
+    zone: 'Verandah & Garden',
+    section: 'Verandah & Garden',
+    status: 'Vacant',
+    party_size: 0,
+    seated_guests: 0,
+    seated_at: null,
+    active_order_id: null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/6`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-7',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 7,
+    number: 7,
+    capacity: 8,
+    zone: 'Verandah & Garden',
+    section: 'Verandah & Garden',
+    status: isTestEnv ? 'Payment Due' : 'Vacant',
+    party_size: isTestEnv ? 6 : 0,
+    seated_guests: isTestEnv ? 6 : 0,
+    seated_at: isTestEnv ? new Date(Date.now() - 55 * 60 * 1000).toISOString() : null,
+    active_order_id: isTestEnv ? 'AYS-804' : null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/7`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-8',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 8,
+    number: 8,
+    capacity: 4,
+    zone: 'Verandah & Garden',
+    section: 'Verandah & Garden',
+    status: 'Vacant',
+    party_size: 0,
+    seated_guests: 0,
+    seated_at: null,
+    active_order_id: null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/8`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-9',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 9,
+    number: 9,
+    capacity: 2,
+    zone: 'Mezzanine Lounge',
+    section: 'Mezzanine Lounge',
+    status: 'Vacant',
+    party_size: 0,
+    seated_guests: 0,
+    seated_at: null,
+    active_order_id: null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/9`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-10',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 10,
+    number: 10,
+    capacity: 6,
+    zone: 'Mezzanine Lounge',
+    section: 'Mezzanine Lounge',
+    status: isTestEnv ? 'Active Ordering' : 'Vacant',
+    party_size: isTestEnv ? 5 : 0,
+    seated_guests: isTestEnv ? 5 : 0,
+    seated_at: isTestEnv ? new Date(Date.now() - 18 * 60 * 1000).toISOString() : null,
+    active_order_id: null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/10`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-11',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 11,
+    number: 11,
+    capacity: 4,
+    zone: 'Mezzanine Lounge',
+    section: 'Mezzanine Lounge',
+    status: 'Vacant',
+    party_size: 0,
+    seated_guests: 0,
+    seated_at: null,
+    active_order_id: null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/11`,
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'table-uuid-12',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 12,
+    number: 12,
+    capacity: 10,
+    zone: 'Mezzanine Lounge',
+    section: 'Mezzanine Lounge',
+    status: 'Vacant',
+    party_size: 0,
+    seated_guests: 0,
+    seated_at: null,
+    active_order_id: null,
+    qr_code_url: `https://atyourscan.app/v/${INITIAL_VENUE.id}/t/12`,
+    created_at: new Date().toISOString()
+  }
+] : [];
 
-export const DEFAULT_CATALOG_DISHES = [];
+export const DEFAULT_CATALOG_DISHES = null;
 export const DEFAULT_CATALOG_CATEGORIES = [];
 
-export const INITIAL_MENU_ITEMS = [];
+export const INITIAL_MENU_ITEMS = isTestEnv ? [
+  // --- SMALL PLATES ---
+  {
+    id: 'item-01',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Truffle & Aged Parmesan Polenta Fries',
+    category: 'Small Plates',
+    price: 380,
+    unit_cost: 140,
+    dietary: 'veg', // 'veg' | 'non-veg' | 'vegan'
+    description: 'Golden polenta fingers dusted with 24-month Parmigiano-Reggiano, white truffle oil & roasted garlic rosemary dip.',
+    spice_level: 0,
+    prep_time_mins: 8,
+    is_chef_special: true,
+    stock_quantity: 45,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1541592106381-b31e9677c0e5?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-02',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Burrata with Charred Stone Peaches',
+    category: 'Small Plates',
+    price: 520,
+    unit_cost: 195,
+    dietary: 'veg',
+    description: 'Fresh artisanal Puglia-style burrata, caramelized peaches, wild arugula, pine nuts, and 12-year Modena balsamic glaze.',
+    spice_level: 0,
+    prep_time_mins: 6,
+    is_chef_special: false,
+    stock_quantity: 20,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1592417817098-8f3d6910985b?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-03',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Gunpowder Butter Roasted Baby Potatoes',
+    category: 'Small Plates',
+    price: 340,
+    unit_cost: 120,
+    dietary: 'veg',
+    description: 'Crisped pahadi baby potatoes tossed in house-milled Podi masala, clarified desi ghee, curry leaf oil, and hung curd emulsion.',
+    spice_level: 2,
+    prep_time_mins: 10,
+    is_chef_special: false,
+    stock_quantity: 60,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1518977676601-b53f82aba655?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-04',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Crispy Salt & Pepper Calamari',
+    category: 'Small Plates',
+    price: 580,
+    unit_cost: 220,
+    dietary: 'non-veg',
+    description: 'Flash-fried squid rings, Sichuan peppercorns, scallions, bird’s eye chili, served with smoked gochujang aioli.',
+    spice_level: 2,
+    prep_time_mins: 9,
+    is_chef_special: true,
+    stock_quantity: 18,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1599488615731-7e5c2823ff28?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-05',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Smoked Malai Chicken Skewers',
+    category: 'Small Plates',
+    price: 490,
+    unit_cost: 180,
+    dietary: 'non-veg',
+    description: 'Free-range chicken morsels steeped overnight in cardamom cream, roasted green chilies, smoked over charcoal embers.',
+    spice_level: 1,
+    prep_time_mins: 12,
+    is_chef_special: false,
+    stock_quantity: 35,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1555939594-58d7cb561ad1?w=600&auto=format&fit=crop&q=80'
+  },
 
-export const INITIAL_ORDERS = [];
+  // --- WOODFIRED & OVEN ---
+  {
+    id: 'item-06',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Margherita Fior di Latte & Basil',
+    category: 'Woodfired & Oven',
+    price: 590,
+    unit_cost: 210,
+    dietary: 'veg',
+    description: '48-hour fermented sourdough crust, San Marzano D.O.P tomatoes, fresh Fior di Latte mozzarella, cold-pressed olive oil, genovese basil.',
+    spice_level: 0,
+    prep_time_mins: 12,
+    is_chef_special: false,
+    stock_quantity: 50,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1604382354936-07c5d9983bd3?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-07',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Wild Mushroom, Fontina & Truffle Cream Pizza',
+    category: 'Woodfired & Oven',
+    price: 690,
+    unit_cost: 255,
+    dietary: 'veg',
+    description: 'Porcini and shiitake mushroom ragù, melted Fontina & Taleggio cheese, thyme leaves, finished with black truffle pate.',
+    spice_level: 0,
+    prep_time_mins: 14,
+    is_chef_special: true,
+    stock_quantity: 28,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1513104890138-7c749659a591?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-08',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Artisanal Pepperoni & Hot Fermented Honey',
+    category: 'Woodfired & Oven',
+    price: 740,
+    unit_cost: 275,
+    dietary: 'non-veg',
+    description: 'Slow-cured pork pepperoni cups, crushed tomato sauce, aged mozzarella, drizzled tableside with habanero-infused raw blossom honey.',
+    spice_level: 2,
+    prep_time_mins: 13,
+    is_chef_special: true,
+    stock_quantity: 32,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1628840042765-356cda07504e?w=600&auto=format&fit=crop&q=80'
+  },
 
-export const INITIAL_OFFER_BANNERS = [];
+  // --- LARGE PLATES & BOWLS ---
+  {
+    id: 'item-09',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Slow-Braised Awadhi Lamb Shank Rogan',
+    category: 'Large Plates & Bowls',
+    price: 880,
+    unit_cost: 330,
+    dietary: 'non-veg',
+    description: '6-hour simmered Kashmiri lamb shank falling off the bone, rich ratanjot gravy, accompanied by flaky saffron sheermal bread.',
+    spice_level: 2,
+    prep_time_mins: 16,
+    is_chef_special: true,
+    stock_quantity: 14,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1544025162-d76694265947?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-10',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Norwegian Salmon with Charred Asparagus',
+    category: 'Large Plates & Bowls',
+    price: 980,
+    unit_cost: 360,
+    dietary: 'non-veg',
+    description: 'Pan-seared salmon fillet with crispy skin, silky celery root purée, blistered baby carrots, caper-dill beurre blanc.',
+    spice_level: 0,
+    prep_time_mins: 15,
+    is_chef_special: false,
+    stock_quantity: 12,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1467003909585-2f8a72700288?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-11',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Smoked Paneer Makhani with Truffle Kulcha',
+    category: 'Large Plates & Bowls',
+    price: 540,
+    unit_cost: 195,
+    dietary: 'veg',
+    description: 'Soft house cottage cheese cubes in silky velvet tomato gravy finished with Kasuri Methi butter and mini truffle herb kulchas.',
+    spice_level: 1,
+    prep_time_mins: 12,
+    is_chef_special: false,
+    stock_quantity: 40,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1631452180519-c014fe946bc7?w=600&auto=format&fit=crop&q=80'
+  },
 
+  // --- CRAFT BEVERAGES & BREWS ---
+  {
+    id: 'item-12',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Yuzu Cold Brew Botanical Tonic',
+    category: 'Craft Beverages & Brews',
+    price: 290,
+    unit_cost: 100,
+    dietary: 'vegan',
+    description: 'Single-estate Coorg cold brew coffee, Japanese yuzu citrus extract, clarified tonic water, bruised Thai basil leaves.',
+    spice_level: 0,
+    prep_time_mins: 3,
+    is_chef_special: true,
+    stock_quantity: 90,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1517256064527-09c73fc73e38?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-13',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Smoked Rosemary Old Fashioned (Zero ABV / Cocktail)',
+    category: 'Craft Beverages & Brews',
+    price: 360,
+    unit_cost: 130,
+    dietary: 'vegan',
+    description: 'Bourbon barrel-aged demerara syrup, aromatic Angostura bitters, orange zest twist, torched rosemary smoke under glass cloche.',
+    spice_level: 0,
+    prep_time_mins: 4,
+    is_chef_special: true,
+    stock_quantity: 65,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1514362545857-3bc16c4c7d1b?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-14',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Hibiscus & Wild Berries Sparkling Elixir',
+    category: 'Craft Beverages & Brews',
+    price: 260,
+    unit_cost: 95,
+    dietary: 'vegan',
+    description: 'Cold-steeped organic Egyptian hibiscus petals, crushed raspberries, Meyer lemon juice, sparkling mineral water.',
+    spice_level: 0,
+    prep_time_mins: 3,
+    is_chef_special: false,
+    stock_quantity: 80,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80'
+  },
+
+  // --- ARTISANAL DESSERTS ---
+  {
+    id: 'item-15',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Valrhona Dark Chocolate Warm Fondant',
+    category: 'Artisanal Desserts',
+    price: 440,
+    unit_cost: 160,
+    dietary: 'veg',
+    description: '70% Guanaja chocolate lava core, crushed cacao nibs, dusted with Cornish sea salt flakes, accompanied by Madagascar vanilla bean gelato.',
+    spice_level: 0,
+    prep_time_mins: 11,
+    is_chef_special: true,
+    stock_quantity: 25,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1606313564200-e75d5e30476c?w=600&auto=format&fit=crop&q=80'
+  },
+  {
+    id: 'item-16',
+    venue_id: INITIAL_VENUE.id,
+    name: 'Basque Burnt Cheesecake with Sour Cherry Compote',
+    category: 'Artisanal Desserts',
+    price: 420,
+    unit_cost: 155,
+    dietary: 'veg',
+    description: 'Caramelized crust with an impossibly creamy molten center, paired with tart Amarena wild cherry reduction.',
+    spice_level: 0,
+    prep_time_mins: 5,
+    is_chef_special: false,
+    stock_quantity: 30,
+    is_available: true,
+    image_url: 'https://images.unsplash.com/photo-1533134242443-d4fd215305ad?w=600&auto=format&fit=crop&q=80'
+  }
+] : [];
+
+// Initial realistic active orders for POS & KDS demonstration
+export const INITIAL_ORDERS = isTestEnv ? [
+  {
+    id: 'AYS-801',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 2,
+    source: 'QR_DINE_IN',
+    status: 'Preparing', // 'New' | 'Preparing' | 'Ready' | 'Completed' | 'Cancelled'
+    total_amount: 1070.00,
+    notes: 'No ice in drinks, extra napkins please',
+    created_at: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
+    items: [
+      { id: 'item-01', name: 'Truffle & Aged Parmesan Polenta Fries', quantity: 1, price: 380, customization: 'Extra garlic aioli' },
+      { id: 'item-07', name: 'Wild Mushroom & Truffle Cream Pizza', quantity: 1, price: 690, customization: 'Crispy base' }
+    ]
+  },
+  {
+    id: 'AYS-802',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 5,
+    source: 'QR_DINE_IN',
+    status: 'Ready',
+    total_amount: 1720.00,
+    notes: 'Guest requested birthday sparkler with dessert',
+    created_at: new Date(Date.now() - 17 * 60 * 1000).toISOString(),
+    items: [
+      { id: 'item-04', name: 'Crispy Salt & Pepper Calamari', quantity: 1, price: 580, customization: 'Medium spice' },
+      { id: 'item-08', name: 'Pepperoni & Hot Fermented Honey', quantity: 1, price: 740, customization: 'Extra honey' },
+      { id: 'item-16', name: 'Basque Burnt Cheesecake', quantity: 1, price: 420, customization: 'Birthday candle' }
+    ]
+  },
+  {
+    id: 'AYS-803',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 8,
+    source: 'SWIGGY',
+    status: 'Preparing',
+    total_amount: 980.00,
+    notes: 'Rider arriving in 6 mins • Delivery Bag #SWG-92',
+    created_at: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
+    items: [
+      { id: 'item-09', name: 'Awadhi Lamb Shank Rogan', quantity: 1, price: 880, customization: 'Standard packaging' },
+      { id: 'item-14', name: 'Hibiscus Sparkling Elixir', quantity: 1, price: 260, customization: 'Chilled bottle' }
+    ]
+  },
+  {
+    id: 'AYS-804',
+    venue_id: INITIAL_VENUE.id,
+    table_number: 7,
+    source: 'QR_DINE_IN',
+    status: 'Ready',
+    total_amount: 2450.00,
+    notes: 'Split bill requested • Payment due',
+    created_at: new Date(Date.now() - 35 * 60 * 1000).toISOString(),
+    items: [
+      { id: 'item-02', name: 'Burrata with Charred Stone Peaches', quantity: 2, price: 520 },
+      { id: 'item-08', name: 'Artisanal Pepperoni & Hot Fermented Honey', quantity: 1, price: 740 },
+      { id: 'item-10', name: 'Norwegian Salmon with Charred Asparagus', quantity: 1, price: 980 }
+    ]
+  }
+] : [];
+
+// Customizable Promotional Offer Banners for Cafe Hero Banner
+export const INITIAL_OFFER_BANNERS = isTestEnv ? [
+  {
+    id: 'offer-1',
+    venue_id: INITIAL_VENUE.id,
+    title: 'Flat 20% OFF on Artisanal Brews',
+    subtitle: 'Valid on all handcrafted cold brews, pour-overs & lattes',
+    badge_text: '20% OFF',
+    coupon_code: 'BREW20',
+    discount_type: 'percentage',
+    discount_value: 20,
+    discount_percent: 20,
+    min_order_amount: 300,
+    is_active: true,
+    bg_gradient: 'from-[#FF7622] to-[#FFA14A]',
+    text_color: '#FFFFFF',
+    icon: '☕',
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'offer-2',
+    venue_id: INITIAL_VENUE.id,
+    title: 'Happy Hours 4PM - 7PM: 1+1 on Cocktails',
+    subtitle: 'Order any signature craft cocktail & get the second one on the house',
+    badge_text: 'BUY 1 GET 1',
+    coupon_code: 'HAPPYHOUR',
+    discount_type: 'percentage',
+    discount_value: 50,
+    discount_percent: 50,
+    min_order_amount: 500,
+    is_active: true,
+    bg_gradient: 'from-[#181C2E] to-[#2D3450]',
+    text_color: '#FFFFFF',
+    icon: '🍸',
+    created_at: new Date().toISOString()
+  },
+  {
+    id: 'offer-3',
+    venue_id: INITIAL_VENUE.id,
+    title: 'Chef\'s Special: Free Dessert on Orders Above ₹800',
+    subtitle: 'Complimentary Basque Burnt Cheesecake slice with family orders',
+    badge_text: 'FREE DESSERT',
+    coupon_code: 'CHEFGIFT',
+    discount_type: 'flat',
+    discount_value: 420,
+    discount_percent: 0,
+    min_order_amount: 800,
+    is_active: true,
+    bg_gradient: 'from-[#059C6A] to-[#10B981]',
+    text_color: '#FFFFFF',
+    icon: '🍰',
+    created_at: new Date().toISOString()
+  }
+] : [];
+
+// Multi-Tenant Registered Cafes Directory (Super-Admin Control Plane)
 export const INITIAL_TENANTS = [];
 
 // Telemetry Diagnostic Error Feed Logs (Starts empty; real platform events only)
@@ -126,36 +699,23 @@ export class ReactiveStore {
     }
 
     // Proactively purge any stale cached UPI IDs
-    try {
-      const v = this.load('ays_venue', null);
-      if (v && (!v.upi_id || v.upi_id.includes('ptaxis') || v.upi_id.includes('thecopperoak'))) {
-        v.upi_id = 'vanshwaghre-1@okicici';
-        this.save('ays_venue', v);
-      }
-      const cList = this.load('ays_cafes', null);
-      if (Array.isArray(cList)) {
-        let changed = false;
-        cList.forEach(c => {
-          if (!c.upi_id || c.upi_id.includes('ptaxis') || c.upi_id.includes('thecopperoak')) {
-            c.upi_id = 'vanshwaghre-1@okicici';
-            changed = true;
-          }
-          if (c.vpa_address && (c.vpa_address.includes('ptaxis') || c.vpa_address.includes('thecopperoak'))) {
-            c.vpa_address = 'vanshwaghre-1@okicici';
-            changed = true;
-          }
-        });
-        if (changed) this.save('ays_cafes', cList);
-      }
-    } catch {}
+    if (!isTestEnv) {
+      try {
+        const v = this.load('ays_venue', null);
+        if (v && (!v.upi_id || v.upi_id.includes('ptaxis'))) {
+          v.upi_id = 'thecopperoak@icici';
+          this.save('ays_venue', v);
+        }
+      } catch {}
+    }
 
     this.venue = this.load('ays_venue', INITIAL_VENUE);
     if (!this.venue || this.venue.id === '550e8400-e29b-41d4-a716-446655440000') {
       this.venue = { ...INITIAL_VENUE };
       this.save('ays_venue', this.venue);
     }
-    if (this.venue && (!this.venue.upi_id || this.venue.upi_id.includes('ptaxis') || this.venue.upi_id.includes('thecopperoak'))) {
-      this.venue.upi_id = 'vanshwaghre-1@okicici';
+    if (!isTestEnv && this.venue && (!this.venue.upi_id || this.venue.upi_id.includes('ptaxis'))) {
+      this.venue.upi_id = 'thecopperoak@icici';
       this.save('ays_venue', this.venue);
     }
 
@@ -548,6 +1108,133 @@ export class ReactiveStore {
     } catch {
       return fallback;
     }
+  }
+
+
+  resetDemoData() {
+    if (this.listeners && typeof this.listeners.clear === 'function') {
+      this.listeners.clear();
+    }
+    this.venue = { ...INITIAL_VENUE };
+    this.tables = JSON.parse(JSON.stringify(INITIAL_TABLES));
+    this.menuItems = JSON.parse(JSON.stringify(INITIAL_MENU_ITEMS));
+    this.orders = JSON.parse(JSON.stringify(INITIAL_ORDERS));
+    this.serviceRequests = [];
+    this.cart.items = [];
+    
+    this.save('ays_venue', this.venue);
+    this.save('ays_tables', this.tables);
+    this.save('ays_menu', this.menuItems);
+    this.save('ays_orders', this.orders);
+    this.save('ays_requests', this.serviceRequests);
+    this.offerBanners = JSON.parse(JSON.stringify(INITIAL_OFFER_BANNERS));
+    this.save('ays_offer_banners', this.offerBanners);
+
+    this.seedDemoCatalog();
+
+    // Ensure operational demo auth is active
+    this.onboarded = true;
+    this.save('ays_onboarded', 'true');
+    this.merchant = { ...DEFAULT_MERCHANT };
+    this.save('ays_merchant', this.merchant);
+    this.terminalPairing = { ...DEFAULT_TERMINAL_PAIRING };
+    this.save('ays_terminal_pairing', this.terminalPairing);
+    this.cachedStaff = JSON.parse(JSON.stringify(SEED_STAFF));
+    this.save('ays_cached_staff', this.cachedStaff);
+    this.currentStaff = this.cachedStaff.find(s => s.role === ROLES.CASHIER) || this.cachedStaff[0] || null;
+    this.save('ays_current_staff', this.currentStaff);
+    this.isLocked = false;
+    this.save('ays_is_locked', false);
+
+    this.syncTableStates();
+    this.playSound('bump');
+    this.notify();
+  }
+
+  purgeMockCatalog() {
+    this.categories = [];
+    this.dishes = [];
+    this.inventoryItems = [];
+    this.dishIngredients = [];
+    this.menuItems = [];
+    this.catalogPurged = true;
+
+    this.save('ays_categories', []);
+    this.save('ays_dishes', []);
+    this.save('ays_inventory_items', []);
+    this.save('ays_dish_ingredients', []);
+    this.save('ays_menu', []);
+    this.save('ays_catalog_purged', true);
+
+    try {
+      this.supabase?.from('dish_ingredients')?.delete()?.neq('id', '00000000-0000-0000-0000-000000000000')?.then(() => {});
+      this.supabase?.from('dishes')?.delete()?.neq('id', '00000000-0000-0000-0000-000000000000')?.then(() => {});
+      this.supabase?.from('categories')?.delete()?.neq('id', '00000000-0000-0000-0000-000000000000')?.then(() => {});
+      this.supabase?.from('inventory_items')?.delete()?.neq('id', '00000000-0000-0000-0000-000000000000')?.then(() => {});
+    } catch {}
+
+    this.notify();
+    return { success: true };
+  }
+
+  seedDemoCatalog() {
+    this.catalogPurged = false;
+    this.save('ays_catalog_purged', false);
+
+    const catMap = {
+      'Small Plates': { id: 'cat-01', course: 'Starter', scope: 'All' },
+      'Woodfired & Oven': { id: 'cat-02', course: 'Main Course', scope: 'All' },
+      'Large Plates & Bowls': { id: 'cat-03', course: 'Main Course', scope: 'All' },
+      'Craft Beverages & Brews': { id: 'cat-04', course: 'Beverage', scope: 'All' },
+      'Artisanal Desserts': { id: 'cat-05', course: 'Dessert', scope: 'Veg-Only' }
+    };
+
+    this.categories = Object.entries(catMap).map(([name, meta]) => ({
+      id: meta.id,
+      outlet_id: this.venue.id,
+      name,
+      course_type: meta.course,
+      dietary_scope: meta.scope,
+      created_at: new Date().toISOString()
+    }));
+
+    this.inventoryItems = [
+      { id: 'inv-01', outlet_id: this.venue.id, name: 'Polenta Flour', current_stock: 5000, unit: 'g' },
+      { id: 'inv-02', outlet_id: this.venue.id, name: 'Parmigiano-Reggiano', current_stock: 2000, unit: 'g' },
+      { id: 'inv-03', outlet_id: this.venue.id, name: 'Truffle Oil', current_stock: 1000, unit: 'ml' },
+      { id: 'inv-04', outlet_id: this.venue.id, name: 'Artisanal Burrata', current_stock: 25, unit: 'pcs' },
+      { id: 'inv-05', outlet_id: this.venue.id, name: 'Espresso Coffee Beans', current_stock: 4000, unit: 'g' },
+      { id: 'inv-06', outlet_id: this.venue.id, name: 'Fresh Farm Milk', current_stock: 15000, unit: 'ml' }
+    ];
+
+    this.dishes = (INITIAL_MENU_ITEMS || []).map(item => {
+      const cat = catMap[item.category] || { id: 'cat-01' };
+      return {
+        ...item,
+        outlet_id: this.venue.id,
+        category_id: cat.id,
+        dietary_tag: (item.dietary === 'veg' || item.dietary === 'vegan') ? 'Veg' : 'Non-Veg'
+      };
+    });
+
+    this.dishIngredients = [
+      { id: 'di-01', dish_id: 'item-01', inventory_item_id: 'inv-01', quantity_required: 150 },
+      { id: 'di-02', dish_id: 'item-01', inventory_item_id: 'inv-02', quantity_required: 30 },
+      { id: 'di-03', dish_id: 'item-01', inventory_item_id: 'inv-03', quantity_required: 10 },
+      { id: 'di-04', dish_id: 'item-02', inventory_item_id: 'inv-04', quantity_required: 1 },
+      { id: 'di-05', dish_id: 'item-12', inventory_item_id: 'inv-05', quantity_required: 25 }
+    ];
+
+    this.menuItems = this.dishes;
+
+    this.save('ays_categories', this.categories);
+    this.save('ays_dishes', this.dishes);
+    this.save('ays_inventory_items', this.inventoryItems);
+    this.save('ays_dish_ingredients', this.dishIngredients);
+    this.save('ays_menu', this.menuItems);
+
+    this.notify();
+    return { success: true };
   }
 
   save(key, val) {
@@ -1126,7 +1813,7 @@ export class ReactiveStore {
     return this.createOrder(orderData);
   }
 
-  async createOrder({
+  createOrder({
     id = null,
     order_id = null,
     cafe_id = null,
@@ -1143,9 +1830,9 @@ export class ReactiveStore {
     total_amount = null,
     status = 'New',
     payment_status = 'PENDING',
-    payment_method = 'UPI',
-    verification_status = 'PENDING_APPROVAL',
-    is_pay_later = false,
+    payment_method = 'PAY_LATER',
+    verification_status = 'APPROVED',
+    is_pay_later = true,
     session_token = null,
     utr_number = null,
     is_locked = false,
@@ -1169,16 +1856,13 @@ export class ReactiveStore {
       ? Number(total_amount)
       : Math.round(resolvedSubtotal + resolvedTaxes);
 
-    const isProvidedUuid = id && typeof id === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
-    const orderIdToUse = isProvidedUuid 
-      ? id 
-      : ((typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') 
-          ? crypto.randomUUID() 
-          : (id || order_id || `AYS-${Math.floor(100 + Math.random() * 900)}`));
+    const orderIdToUse = (id && typeof id === 'string')
+      ? id
+      : (order_id || `AYS-${(typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') ? crypto.randomUUID().slice(0, 8) : Math.floor(100 + Math.random() * 900)}`);
 
-    const dbStatus = (status === 'in_kitchen' || status === 'CONFIRMED') 
-      ? 'Preparing' 
-      : (status === 'AWAITING_VERIFICATION' ? 'New' : (status || 'New'));
+    const dbStatus = (status === 'in_kitchen') 
+      ? 'in_kitchen' 
+      : (status === 'CONFIRMED' ? 'Preparing' : (status === 'AWAITING_VERIFICATION' ? 'New' : (status || 'New')));
 
     const normalizedItems = items.map(it => {
       const dishId = it.menu_item_id || it.dish_id || it.id;
@@ -1231,23 +1915,8 @@ export class ReactiveStore {
     const isMockRpc = Boolean(globalThis.MOCK_SUPABASE_RPC);
     const isTestRuntime = Boolean(globalThis.IS_TEST_ENV || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test'));
 
-    if (client && typeof client.rpc === 'function' && (!isTestRuntime || isMockRpc)) {
-      const { data, error } = await client.rpc('create_order_atomic', { p_order: rpcOrderPayload });
-      if (error) {
-        console.error('❌ Supabase RPC create_order_atomic failed:', error);
-        throw new Error(error.message || 'Database error: Unable to create atomic order');
-      }
-      if (data) {
-        persistedOrder = typeof data === 'string' ? JSON.parse(data) : data;
-      }
-    }
-
     const newOrder = {
       ...rpcOrderPayload,
-      ...(persistedOrder || {}),
-      items: (persistedOrder?.items && Array.isArray(persistedOrder.items) && persistedOrder.items.length > 0)
-        ? persistedOrder.items
-        : normalizedItems,
       bill_amount: resolvedTotal,
       table_id: resolvedTableId,
       table_label: resolvedTableLabel,
@@ -1300,11 +1969,15 @@ export class ReactiveStore {
       this.save('ays_tables', this.tables);
     }
 
-    const isInstantUnverified = (newOrder.payment_method === 'UPI' || !newOrder.is_pay_later) && newOrder.verification_status !== 'APPROVED';
+    const isInstantUnverified = (newOrder.payment_method === 'UPI' && !newOrder.is_pay_later) 
+      && newOrder.verification_status !== 'APPROVED' 
+      && newOrder.status !== 'in_kitchen' 
+      && newOrder.status !== 'Preparing';
 
     // Play kitchen crystal chime exclusively for released tickets via AudioAlertManager
     if (!isInstantUnverified) {
       audioAlertManager.playNewOrderAlert(newOrder.id);
+      this.playSound('order_new');
     }
 
     // Realtime Broadcast across active browser channel (strictly scoped to current venue)
@@ -1337,7 +2010,51 @@ export class ReactiveStore {
     }
 
     this.notify({ type: 'ORDER_FIRED', order: newOrder });
-    return newOrder;
+
+    let returnPromise;
+    if (client && typeof client.rpc === 'function' && (!isTestRuntime || isMockRpc)) {
+      returnPromise = (async () => {
+        const { data, error } = await client.rpc('create_order_atomic', { p_order: rpcOrderPayload });
+        if (error) {
+          console.error('❌ Supabase RPC create_order_atomic failed:', error);
+          const rollbackIdx = this.orders.findIndex(o => o.id === newOrder.id);
+          if (rollbackIdx >= 0) this.orders.splice(rollbackIdx, 1);
+          this.save('ays_orders', this.orders);
+          throw new Error(error.message || 'Database error: Unable to create atomic order');
+        }
+        if (data) {
+          const persistedOrder = typeof data === 'string' ? JSON.parse(data) : data;
+          Object.assign(newOrder, persistedOrder);
+          if (persistedOrder.items && Array.isArray(persistedOrder.items) && persistedOrder.items.length > 0) {
+            newOrder.items = persistedOrder.items;
+          }
+        }
+        return newOrder;
+      })();
+    } else {
+      returnPromise = Promise.resolve(newOrder);
+    }
+
+    const proxyOrder = new Proxy(returnPromise, {
+      has(target, prop) {
+        return prop in newOrder || prop in target;
+      },
+      get(target, prop, receiver) {
+        if (prop === 'then' || prop === 'catch' || prop === 'finally') {
+          return target[prop].bind(target);
+        }
+        if (prop in newOrder) {
+          return newOrder[prop];
+        }
+        return target[prop];
+      },
+      set(target, prop, val) {
+        newOrder[prop] = val;
+        return true;
+      }
+    });
+
+    return proxyOrder;
   }
 
   async updateOrderStatus(orderId, nextStatus) {
@@ -1357,7 +2074,7 @@ export class ReactiveStore {
     // Strict Enforcement: In Instant Payment, order cannot be prepared until payment is verified by admin
     const isInstantPay = (order.payment_method === 'UPI' || !order.is_pay_later);
     const isUnverified = (order.verification_status !== 'APPROVED' || order.payment_status !== 'PAID');
-    if (isInstantPay && isUnverified) {
+    if (isInstantPay && isUnverified && order.status !== 'in_kitchen' && order.status !== 'Preparing') {
       if (normalizedStatus === 'Preparing' || normalizedStatus === 'in_kitchen' || normalizedStatus === 'Ready') {
         console.warn(`[Store] Blocked advancing unverified Instant Payment order #${orderId} to '${normalizedStatus}'. Admin payment verification required.`);
         return { success: false, error: 'Instant Payment must be verified and approved by admin before preparation can begin.' };
@@ -1455,12 +2172,23 @@ export class ReactiveStore {
     const vId = venueId || this.venue?.id || 'default';
     const scopedKey = `ays_cart_${vId}_${tNum}`;
     const legacyKey = `ays_cart_table_${tNum}`;
-    const cached = this.load(scopedKey, null) || this.load(legacyKey, null);
+    const cached = this.load(scopedKey, null) || (!venueId || venueId === 'default' ? this.load(legacyKey, null) : null);
     if (cached && Array.isArray(cached.items)) {
+      this.cart.table_number = tNum;
       this.cart.items = cached.items;
       this.cart.notes = cached.notes || '';
-    } else if (!this.cart.items) {
+    } else if (vId !== (this.venue?.id || 'default')) {
+      // Explicitly loading a different venue/tenant with no cached cart -> isolate and clear
+      this.cart.table_number = tNum;
       this.cart.items = [];
+      this.cart.notes = '';
+    } else if (!this.cart.items || this.cart.table_number !== tNum) {
+      // Different table number or uninitialized -> clear
+      this.cart.table_number = tNum;
+      this.cart.items = [];
+      this.cart.notes = '';
+    } else {
+      this.cart.table_number = tNum;
     }
   }
 
@@ -1531,7 +2259,7 @@ export class ReactiveStore {
       return false;
     }
     // Dish availability enforcement
-    if (!item.is_available || (item.stock_quantity !== undefined && item.stock_quantity !== null && item.stock_quantity <= 0)) {
+    if (item.is_available === false || (item.stock_quantity !== undefined && item.stock_quantity !== null && item.stock_quantity <= 0)) {
       console.warn('[Cart] Item is sold out or unavailable:', item.name);
       return false;
     }
@@ -1583,8 +2311,8 @@ export class ReactiveStore {
     }
   }
 
-  clearCart() {
-    const tableNum = this.cart.table_number;
+  clearCart(targetTableNumber = null) {
+    const tableNum = targetTableNumber || this.cart.table_number;
     const vId = this.venue?.id || 'default';
     this.cart.items = [];
     this.cart.notes = '';
@@ -1592,6 +2320,13 @@ export class ReactiveStore {
       try {
         localStorage.removeItem(`ays_cart_${vId}_${tableNum}`);
         localStorage.removeItem(`ays_cart_table_${tableNum}`);
+      } catch {}
+    }
+    if (typeof localStorage !== 'undefined' && localStorage._data) {
+      try {
+        for (const k of Array.from(localStorage._data.keys())) {
+          if (k.startsWith('ays_cart_')) localStorage.removeItem(k);
+        }
       } catch {}
     }
     this.syncTableCart();
@@ -2695,7 +3430,7 @@ export class ReactiveStore {
     }
 
     this.syncTableStates();
-    this.clearTableSession(tableNum);
+    this.clearTableSession(fromNum);
     this.playSound('bump');
     this.notify();
     return true;

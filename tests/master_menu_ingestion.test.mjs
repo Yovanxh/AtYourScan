@@ -381,4 +381,11 @@ Description: Chocolate Sauce, Fresh Grilled Bread`;
   assert.equal(parsed.categories[0].course_type, 'Dessert');
 });
 
+// Run standalone if executed directly
+if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))) {
+  suite.run().then(res => {
+    process.exit(res.failed > 0 ? 1 : 0);
+  });
+}
+
 
