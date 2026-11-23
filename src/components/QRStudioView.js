@@ -61,7 +61,10 @@ export function renderQRStudioView(container, store) {
             const defaultOrigin = typeof window !== 'undefined' && window.location ? window.location.origin : 'http://localhost:3000';
             const origin = customBaseUrl ? customBaseUrl.trim().replace(/\/$/, '') : defaultOrigin;
             const pathname = typeof window !== 'undefined' && window.location ? window.location.pathname : '/';
-            const targetUrl = `${origin}${pathname}?table=${table.table_number}`;
+            const venueId = venue?.id || venue?.cafe_id || '';
+            const venueQueryPart = venueId ? `venue=${encodeURIComponent(venueId)}&` : '';
+            const targetUrl = `${origin}${pathname}?${venueQueryPart}table=${encodeURIComponent(table.table_number)}`;
+            const relativeTableUrl = `?${venueQueryPart}table=${encodeURIComponent(table.table_number)}`;
             const qrSvg = generateQRCodeSVG(targetUrl, { size: 160, darkColor: '#09090b', lightColor: '#ffffff' });
 
             return `
@@ -90,7 +93,7 @@ export function renderQRStudioView(container, store) {
 
                 <!-- Crisp Vector QR Code (Clickable to open) -->
                 <a 
-                  href="?table=${table.table_number}" 
+                  href="${relativeTableUrl}" 
                   target="_blank" 
                   class="bg-white p-3 rounded-2xl shadow-inner inline-block hover:ring-4 hover:ring-amber-500/40 transition-all cursor-pointer group"
                   title="Click or scan to open live guest menu for Table ${table.table_number}"
@@ -107,7 +110,7 @@ export function renderQRStudioView(container, store) {
                 <!-- Direct Testing & Action Buttons (Hidden on Print) -->
                 <div class="w-full space-y-2 pt-1 no-print">
                   <a 
-                    href="?table=${table.table_number}" 
+                    href="${relativeTableUrl}" 
                     target="_blank"
                     class="w-full py-2 px-3 rounded-xl bg-amber-500/15 hover:bg-amber-500/25 border border-amber-500/40 text-amber-300 text-xs font-semibold flex items-center justify-center gap-1.5 transition-all active:scale-95"
                     title="Launch live guest ordering view for Table ${table.table_number}"

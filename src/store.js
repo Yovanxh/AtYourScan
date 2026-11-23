@@ -521,9 +521,11 @@ class ReactiveStore {
     }
 
     // Listen to real Supabase Realtime if online
-    this.initSupabaseRealtime();
-    this.initRealtimeOrders();
-    this.syncWithSupabase();
+    if (!isTestEnv) {
+      this.initSupabaseRealtime();
+      this.initRealtimeOrders();
+      this.syncWithSupabase();
+    }
   }
 
   load(key, fallback) {
@@ -1445,26 +1447,32 @@ class ReactiveStore {
   }
 
   // --- COLLABORATIVE FAMILY & GROUP TABLE CART SUBSYSTEM ---
-  loadTableCart(tableNum) {
+  loadTableCart(tableNum, venueId) {
     if (!tableNum) return;
     const tNum = parseInt(tableNum, 10);
     if (isNaN(tNum)) return;
     this.cart.table_number = tNum;
-    if (!this.cart.items || this.cart.items.length === 0) {
-      const cached = this.load(`ays_cart_table_${tNum}`, null);
-      if (cached && Array.isArray(cached.items) && cached.items.length > 0) {
-        this.cart.items = cached.items;
-        this.cart.notes = cached.notes || '';
-      }
+    const vId = venueId || this.venue?.id || 'default';
+    const scopedKey = `ays_cart_${vId}_${tNum}`;
+    const legacyKey = `ays_cart_table_${tNum}`;
+    const cached = this.load(scopedKey, null) || this.load(legacyKey, null);
+    if (cached && Array.isArray(cached.items)) {
+      this.cart.items = cached.items;
+      this.cart.notes = cached.notes || '';
+    } else if (!this.cart.items) {
+      this.cart.items = [];
     }
   }
 
   syncTableCart() {
     const tableNum = this.cart.table_number;
+    const vId = this.venue?.id || 'default';
     if (!tableNum) {
+      this.save(`ays_cart_${vId}`, this.cart);
       this.save('ays_cart', this.cart);
       return;
     }
+    this.save(`ays_cart_${vId}_${tableNum}`, this.cart);
     this.save(`ays_cart_table_${tableNum}`, this.cart);
     this.save('ays_cart', this.cart);
 
@@ -1505,8 +1513,10 @@ class ReactiveStore {
     if (this.venue?.id && payload.venue_id && payload.venue_id !== this.venue.id) return;
 
     if (String(this.cart.table_number) === String(payload.tableNumber)) {
+      const vId = this.venue?.id || 'default';
       this.cart.items = Array.isArray(payload.cart?.items) ? payload.cart.items : [];
       this.cart.notes = payload.cart?.notes || '';
+      this.save(`ays_cart_${vId}_${this.cart.table_number}`, this.cart);
       this.save(`ays_cart_table_${this.cart.table_number}`, this.cart);
       this.save('ays_cart', this.cart);
       this.notify({ type: 'CART_UPDATED', cart: this.cart, remote: true });
@@ -1514,13 +1524,27 @@ class ReactiveStore {
   }
 
   // --- CART MANAGEMENT ---
-  addToCart(item, quantity = 1, customization = '') {
+  addToCart(item, quantity = 1, customization = '', customPrice = null) {
+    if (!item) return false;
     if (this.isTableSessionLocked && this.isTableSessionLocked(this.cart.table_number)) {
       console.warn('[Cart] Table order session is locked pending payment.');
       return false;
     }
+    // Dish availability enforcement
+    if (!item.is_available || (item.stock_quantity !== undefined && item.stock_quantity !== null && item.stock_quantity <= 0)) {
+      console.warn('[Cart] Item is sold out or unavailable:', item.name);
+      return false;
+    }
+
+    const normCustomization = typeof customization === 'string' ? customization.trim() : (customization ? JSON.stringify(customization) : '');
+    const unitPrice = (customPrice !== null && customPrice !== undefined && !isNaN(customPrice))
+      ? Number(customPrice)
+      : Number(item.price || 0);
+
     const existing = this.cart.items.find(
-      i => i.item.id === item.id && (i.customization || '') === customization
+      i => (i.item.id === item.id || i.item.dish_id === item.id) &&
+           ((i.customization || '').trim() === normCustomization) &&
+           (Number(i.price !== undefined && i.price !== null ? i.price : i.item.price) === unitPrice)
     );
     if (existing) {
       existing.quantity += quantity;
@@ -1528,13 +1552,14 @@ class ReactiveStore {
       this.cart.items.push({
         item,
         quantity,
-        customization,
-        price: item.price
+        customization: normCustomization,
+        price: unitPrice
       });
     }
     this.playSound('pop');
     this.syncTableCart();
     this.notify({ type: 'CART_UPDATED', cart: this.cart });
+    return true;
   }
 
   updateCartQuantity(itemIndex, delta) {
@@ -1549,24 +1574,58 @@ class ReactiveStore {
     }
   }
 
+  removeFromCart(itemIndex) {
+    if (this.cart.items[itemIndex]) {
+      this.cart.items.splice(itemIndex, 1);
+      this.playSound('pop');
+      this.syncTableCart();
+      this.notify({ type: 'CART_UPDATED', cart: this.cart });
+    }
+  }
+
   clearCart() {
+    const tableNum = this.cart.table_number;
+    const vId = this.venue?.id || 'default';
     this.cart.items = [];
     this.cart.notes = '';
+    if (tableNum) {
+      try {
+        localStorage.removeItem(`ays_cart_${vId}_${tableNum}`);
+        localStorage.removeItem(`ays_cart_table_${tableNum}`);
+      } catch {}
+    }
     this.syncTableCart();
     this.notify({ type: 'CART_UPDATED', cart: this.cart });
   }
 
   getCartTotals() {
-    const subtotal = this.cart.items.reduce((acc, it) => acc + (it.item.price * it.quantity), 0);
-    const gst = Math.round(subtotal * this.venue.gst_rate);
-    const serviceCharge = Math.round(subtotal * this.venue.service_charge_rate);
+    const items = Array.isArray(this.cart?.items) ? this.cart.items : [];
+    const subtotal = items.reduce((acc, it) => {
+      const price = (it.price !== undefined && it.price !== null && !isNaN(it.price))
+        ? Number(it.price)
+        : Number(it.item?.price || 0);
+      const qty = Math.max(0, parseInt(it.quantity, 10) || 0);
+      return acc + (price * qty);
+    }, 0);
+
+    const gstRate = (this.venue && this.venue.gst_rate !== undefined && this.venue.gst_rate !== null && !isNaN(this.venue.gst_rate))
+      ? Number(this.venue.gst_rate)
+      : 0.05; // 5% default GST rate
+
+    const serviceChargeRate = (this.venue && this.venue.service_charge_rate !== undefined && this.venue.service_charge_rate !== null && !isNaN(this.venue.service_charge_rate))
+      ? Number(this.venue.service_charge_rate)
+      : (this.venue && this.venue.service_charge && !isNaN(this.venue.service_charge) ? Number(this.venue.service_charge) : 0);
+
+    const gst = Math.round(subtotal * gstRate);
+    const serviceCharge = Math.round(subtotal * serviceChargeRate);
     const total = subtotal + gst + serviceCharge;
+
     return {
       subtotal,
       gst,
       serviceCharge,
       total,
-      itemCount: this.cart.items.reduce((acc, it) => acc + it.quantity, 0)
+      itemCount: items.reduce((acc, it) => acc + (Math.max(0, parseInt(it.quantity, 10) || 0)), 0)
     };
   }
 
@@ -1914,6 +1973,12 @@ class ReactiveStore {
         try {
           localStorage.setItem('ays_dishes_cache', JSON.stringify(normalizedDishes));
           localStorage.setItem('ays_categories_cache', JSON.stringify(normalizedCats));
+          if (targetVenue) {
+            localStorage.setItem(`ays_dishes_${targetVenue}`, JSON.stringify(normalizedDishes));
+            localStorage.setItem(`ays_categories_${targetVenue}`, JSON.stringify(normalizedCats));
+            this.save?.(`ays_dishes_${targetVenue}`, normalizedDishes);
+            this.save?.(`ays_categories_${targetVenue}`, normalizedCats);
+          }
           this.save?.('ays_dishes', normalizedDishes);
           this.save?.('ays_menu', normalizedDishes);
           this.save?.('ays_categories', normalizedCats);
@@ -3260,6 +3325,7 @@ class ReactiveStore {
   }
 
   initRealtimeOrders() {
+    if (isTestEnv || typeof window === 'undefined') return null;
     const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
     if (!client || typeof client.channel !== 'function') return null;
 

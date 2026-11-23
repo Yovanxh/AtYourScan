@@ -19,6 +19,9 @@ export function renderCustomerView(container, store, options = {}) {
   let lastPlacedOrder = null;
   let settledReceipt = null;
   let customInstructions = '';
+  let selectedVariation = null;
+  let isMenuLoading = false;
+  let menuLoadError = null;
   let currentOfferIndex = 0;
   let tableNumber = optionsObj.tableNumber || (store.cart && store.cart.table_number) || null;
 
@@ -43,27 +46,12 @@ export function renderCustomerView(container, store, options = {}) {
       }
     }
 
-    // 2. Café/Tenant Fallback Resolution
-    targetTenant = (urlCafe
-      ? allCafes.find(c => c.id === urlCafe || c.slug === urlCafe || c.cafe_id === urlCafe)
-      : null) ||
-      allCafes.find(c => c.status === 'active') ||
-      allCafes[0] ||
-      store.venue;
-
-    // Guaranteed fallback resolution so diners never get stuck
-    if (!targetTenant) {
-      const fallbackName = urlCafe
-        ? urlCafe.replace(/^cafe-/, '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
-        : 'First Way Cafe';
-      targetTenant = {
-        id: urlCafe || 'venue-default-01',
-        cafe_id: urlCafe || 'venue-default-01',
-        name: fallbackName,
-        upi_id: 'vanshwaghre-1@okicici',
-        status: 'active',
-        currency: 'INR'
-      };
+    // 2. Café/Tenant Resolution (No fake fallbacks)
+    if (urlCafe) {
+      targetTenant = allCafes.find(c => c.id === urlCafe || c.slug === urlCafe || c.cafe_id === urlCafe) ||
+        ((store.venue && (store.venue.id === urlCafe || store.venue.cafe_id === urlCafe || store.venue.slug === urlCafe)) ? store.venue : null);
+    } else {
+      targetTenant = allCafes.find(c => c.status === 'active') || store.venue || allCafes[0] || null;
     }
 
     // 3. Activation & Venue Check
@@ -81,16 +69,7 @@ export function renderCustomerView(container, store, options = {}) {
       }
     }
 
-    if (store.venue && (!store.venue.upi_id || store.venue.upi_id.includes('ptaxis') || store.venue.upi_id.includes('thecopperoak'))) {
-      store.venue.upi_id = 'vanshwaghre-1@okicici';
-    }
-    if (targetTenant && (!targetTenant.upi_id || targetTenant.upi_id.includes('ptaxis') || targetTenant.upi_id.includes('thecopperoak'))) {
-      targetTenant.upi_id = 'vanshwaghre-1@okicici';
-    }
     const venue = store.venue || targetTenant;
-    if (venue && (!venue.upi_id || venue.upi_id.includes('ptaxis') || venue.upi_id.includes('thecopperoak'))) {
-      venue.upi_id = 'vanshwaghre-1@okicici';
-    }
 
     if (!venue || (!venue.name && !venue.id)) {
       container.innerHTML = `
@@ -100,20 +79,12 @@ export function renderCustomerView(container, store, options = {}) {
               ☕
             </div>
             <div class="space-y-2">
-              <h1 class="text-xl font-bold tracking-tight text-[#181C2E]">No Active Café Found</h1>
+              <h1 class="text-xl font-bold tracking-tight text-[#181C2E]">Venue Not Found</h1>
               <p class="text-xs text-[#646982] leading-relaxed">
-                There is currently no active café provisioned for this dining portal.
-                If you are a café owner or manager, register your establishment to launch your contactless digital menu and table QR ordering.
+                The requested restaurant or venue could not be found. Please check your QR code or scan the tent card on your dining table.
               </p>
             </div>
             <div class="pt-2 flex flex-col gap-2.5">
-              <a 
-                href="/signup?type=cafe" 
-                class="w-full py-3 px-4 rounded-2xl bg-[#FF7622] hover:bg-[#e0651a] text-white text-xs font-bold shadow-md shadow-orange-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
-              >
-                <span>🚀</span>
-                <span>Register Your Café</span>
-              </a>
               <a 
                 href="/login" 
                 class="w-full py-2.5 px-4 rounded-2xl bg-[#F0F5FA] hover:bg-[#E3E8ED] text-[#181C2E] text-xs font-semibold transition-all active:scale-95 flex items-center justify-center gap-1.5"
@@ -127,30 +98,81 @@ export function renderCustomerView(container, store, options = {}) {
       return;
     }
     
-    // Strict QR Table Parameter Extraction
-    tableNumber = tableNumber || store.cart?.table_number;
-    if (!tableNumber && typeof window !== 'undefined' && window.location) {
+    // Strict QR Table Parameter Extraction & Table Validation
+    let rawTableParam = null;
+    let hasTableParam = false;
+
+    if (optionsObj.tableNumber !== undefined && optionsObj.tableNumber !== null) {
+      hasTableParam = true;
+      rawTableParam = optionsObj.tableNumber;
+    } else if (typeof window !== 'undefined' && window.location) {
       const p = new URLSearchParams(window.location.search);
       if (p.has('table')) {
-        const parsed = parseInt(p.get('table'), 10);
-        if (!isNaN(parsed)) tableNumber = parsed;
+        hasTableParam = true;
+        rawTableParam = p.get('table');
       } else {
-        const m = window.location.pathname && window.location.pathname.match(/\/t\/(\d+)/);
+        const m = window.location.pathname && window.location.pathname.match(/\/(?:t|table)\/(\d+)/);
         if (m) {
-          const parsed = parseInt(m[1], 10);
-          if (!isNaN(parsed)) tableNumber = parsed;
+          hasTableParam = true;
+          rawTableParam = m[1];
         }
       }
     }
-    if (tableNumber && store.cart) {
-      if (typeof store.loadTableCart === 'function' && store.cart.table_number !== tableNumber) {
-        store.loadTableCart(tableNumber);
-      } else {
+    if (!hasTableParam && store.cart?.table_number) {
+      hasTableParam = true;
+      rawTableParam = store.cart.table_number;
+    }
+
+    if (hasTableParam) {
+      const parsed = parseInt(rawTableParam, 10);
+      const isNumValid = !isNaN(parsed) && parsed > 0;
+      const availableTables = Array.isArray(store.tables) ? store.tables : [];
+      const matchedTable = isNumValid && availableTables.length > 0
+        ? availableTables.find(t => Number(t.table_number || t.number || t.id) === parsed)
+        : (isNumValid && availableTables.length === 0 ? { table_number: parsed } : null);
+
+      if (!isNumValid || !matchedTable) {
+        // Table Not Found state (Clean guidance; NO unrestricted table self-assign grid)
+        container.innerHTML = `
+          <div class="customer-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col items-center justify-center font-sans p-6 text-center select-none">
+            <div class="max-w-md w-full bg-white border border-[#E3E8ED] rounded-3xl p-8 shadow-sm space-y-5">
+              <div class="w-16 h-16 rounded-3xl bg-amber-50 border border-amber-200 flex items-center justify-center text-3xl mx-auto shadow-md shadow-amber-500/10">
+                🏷️
+              </div>
+              <div class="space-y-2">
+                <h1 class="text-xl font-bold tracking-tight text-[#181C2E]">Table Not Found</h1>
+                <p class="text-xs text-[#646982] leading-relaxed">
+                  Table <strong>#${rawTableParam}</strong> could not be found for ${venue.name}.
+                </p>
+                <p class="text-xs text-[#A0A5BA] leading-relaxed pt-1">
+                  Please ensure you have scanned the official QR stand on your dining table or ask our staff for assistance.
+                </p>
+              </div>
+              <div class="pt-2">
+                <a 
+                  href="?view=customer" 
+                  class="w-full py-3 px-4 rounded-2xl bg-[#FF7622] hover:bg-[#e0651a] text-white text-xs font-bold shadow-md shadow-orange-500/20 transition-all active:scale-95 flex items-center justify-center gap-2"
+                >
+                  <span>🔄</span>
+                  <span>Scan Table Again</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        `;
+        return;
+      }
+
+      tableNumber = parsed;
+      if (store.cart) {
         store.cart.table_number = tableNumber;
+        if (typeof store.loadTableCart === 'function') {
+          store.loadTableCart(tableNumber, venue?.id || venueId);
+        }
       }
     }
 
-    // IF NO TABLE QR CODE HAS BEEN SCANNED: Render tabletop QR scan gateway
+    // IF NO TABLE QR CODE HAS BEEN SCANNED: Render tabletop QR scan guidance (NO unrestricted 12-table self-assign grid)
     if (!tableNumber) {
       container.innerHTML = `
         <div class="customer-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col font-sans select-none pb-12">
@@ -174,10 +196,10 @@ export function renderCustomerView(container, store, options = {}) {
             </div>
           </header>
 
-          <main class="max-w-md mx-auto w-full px-4 pt-6 flex-1 flex flex-col items-center text-center space-y-5">
+          <main class="max-w-md mx-auto w-full px-4 pt-8 flex-1 flex flex-col items-center text-center space-y-6">
             <!-- Animated Hero QR Finder -->
-            <div class="relative mt-2">
-              <div class="w-24 h-24 rounded-3xl bg-[#FFF1E8] border border-[#FF7622]/30 flex items-center justify-center text-4xl shadow-lg shadow-orange-500/15">
+            <div class="relative mt-4">
+              <div class="w-28 h-28 rounded-3xl bg-[#FFF1E8] border border-[#FF7622]/30 flex items-center justify-center text-5xl shadow-lg shadow-orange-500/15">
                 📱
               </div>
               <span class="absolute -top-1 -right-1 flex h-4 w-4">
@@ -186,9 +208,9 @@ export function renderCustomerView(container, store, options = {}) {
               </span>
             </div>
 
-            <div class="space-y-1.5">
+            <div class="space-y-2">
               <span class="text-xs font-bold text-[#FF7622] uppercase tracking-wider">Contactless Dining</span>
-              <h2 class="text-xl font-bold tracking-tight text-[#181C2E]">
+              <h2 class="text-2xl font-bold tracking-tight text-[#181C2E]">
                 Scan Tabletop QR Code
               </h2>
               <p class="text-xs text-[#646982] max-w-xs mx-auto leading-relaxed">
@@ -196,73 +218,42 @@ export function renderCustomerView(container, store, options = {}) {
               </p>
             </div>
 
-            <!-- Table Selection -->
-            <div class="w-full bg-white border border-[#E3E8ED] rounded-3xl p-5 text-left space-y-3.5 shadow-sm">
-              <div class="flex items-center justify-between border-b border-[#F0F5FA] pb-2.5">
-                <div class="flex items-center gap-2">
-                  <span class="text-sm">🏷️</span>
-                  <span class="text-xs font-bold text-[#181C2E]">Select Dine-In Table</span>
-                </div>
-                <span class="text-[10px] font-bold text-[#FF7622] bg-[#FFF1E8] px-2.5 py-0.5 rounded-full border border-[#FF7622]/20">12 Tables Available</span>
-              </div>
-              <p class="text-[11px] text-[#646982] leading-normal">
-                Select your seated table number to view the artisanal menu and order:
-              </p>
-
-              <!-- 12 Working Table QR Buttons -->
-              <div class="grid grid-cols-3 sm:grid-cols-4 gap-2 pt-1">
-                ${(store.tables || []).map(t => `
-                  <button 
-                    data-scan-table="${t.table_number}"
-                    class="p-2.5 rounded-2xl bg-[#F0F5FA] hover:bg-[#FFF1E8] border border-transparent hover:border-[#FF7622]/40 text-left transition-all active:scale-95 group cursor-pointer shadow-2xs"
-                  >
-                    <div class="flex items-center justify-between">
-                      <span class="text-xs font-bold text-[#181C2E] group-hover:text-[#FF7622]">T-${t.table_number}</span>
-                    </div>
-                    <div class="text-[9px] text-[#A0A5BA] font-medium mt-0.5 truncate">${t.zone ? t.zone.replace(/🌿|🍃|🍸/g, '').trim() : 'Table'}</div>
-                  </button>
-                `).join('')}
-              </div>
-            </div>
-
             <!-- Helpful Guidance -->
-            <div class="w-full bg-white border border-[#E3E8ED] rounded-3xl p-4 text-left space-y-2 text-xs text-[#646982] shadow-sm">
-              <div class="flex items-center gap-1.5 text-[#181C2E] font-bold text-xs">
+            <div class="w-full bg-white border border-[#E3E8ED] rounded-3xl p-5 text-left space-y-3 text-xs text-[#646982] shadow-sm">
+              <div class="flex items-center gap-2 text-[#181C2E] font-bold text-xs">
                 <span>💡</span>
-                <span>Hospitality Invariant:</span>
+                <span>How to Order:</span>
               </div>
-              <ul class="space-y-1.5 list-disc list-inside text-[#646982] text-[11px]">
-                <li>No app download or customer login required.</li>
-                <li>Instant tabletop ordering with live kitchen sync.</li>
-                <li>One-tap bill settlement via UPI Deep Link.</li>
+              <ul class="space-y-2 text-[#646982] text-[11px]">
+                <li class="flex items-start gap-2">
+                  <span class="text-[#FF7622] font-bold">1.</span>
+                  <span>Find the acrylic tent card on your dining table.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                  <span class="text-[#FF7622] font-bold">2.</span>
+                  <span>Point your smartphone camera at the table QR code.</span>
+                </li>
+                <li class="flex items-start gap-2">
+                  <span class="text-[#FF7622] font-bold">3.</span>
+                  <span>Browse the live menu, customize dishes, and order directly.</span>
+                </li>
               </ul>
             </div>
           </main>
         </div>
       `;
 
-      // Bind simulation table buttons
-      container.querySelectorAll('[data-scan-table]').forEach(btn => {
-        btn.addEventListener('click', (e) => {
-          const tNum = parseInt(e.currentTarget.dataset.scanTable, 10);
-          if (store.cart) store.cart.table_number = tNum;
-          if (typeof window !== 'undefined' && window.history) {
-            const newUrl = new URL(window.location);
-            newUrl.searchParams.set('table', tNum);
-            newUrl.searchParams.delete('view');
-            window.history.replaceState({}, '', newUrl);
-          }
-          render();
-        });
-      });
-
       return;
     }
 
     // Strict Table Freeze Gate
     const activeSession = store.venue?.active_sessions?.[tableNumber];
-    const myToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_table_session') : null;
-    const myActiveOrderId = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_active_order_id') : null;
+    const targetVId = store.venue?.id || store.venue?.cafe_id || venueId;
+    const scopedSessionKey = targetVId && tableNumber ? `ays_table_session_${targetVId}_${tableNumber}` : 'ays_table_session';
+    const scopedOrderIdKey = targetVId && tableNumber ? `ays_active_order_id_${targetVId}_${tableNumber}` : 'ays_active_order_id';
+
+    const myToken = (typeof localStorage !== 'undefined') ? (localStorage.getItem(scopedSessionKey) || localStorage.getItem('ays_table_session')) : null;
+    const myActiveOrderId = (typeof localStorage !== 'undefined') ? (localStorage.getItem(scopedOrderIdKey) || localStorage.getItem('ays_active_order_id')) : null;
 
     if (activeSession && activeSession.status === 'OCCUPIED') {
       // CASE A: The current user OWNS this session
@@ -607,11 +598,6 @@ export function renderCustomerView(container, store, options = {}) {
       return matchCat && matchSearch && matchDiet;
     });
 
-    // Fallback: If the filtered dishes array has length === 0 while store.dishes.length > 0, automatically fallback to displaying store.dishes so the screen is NEVER blank
-    if (filteredItems.length === 0 && rawDishes.length > 0) {
-      filteredItems = rawDishes;
-    }
-
     // Check for existing active orders for this table
     const tableOrders = store.orders.filter(
       o => (o.table_number === tableNumber || o.table_id === tableNumber || String(o.table_number) === String(tableNumber) || String(o.table_id) === String(tableNumber)) 
@@ -831,17 +817,29 @@ export function renderCustomerView(container, store, options = {}) {
 
             <!-- Menu Item Cards List -->
             <div class="space-y-3">
-              ${rawDishes.length === 0 ? `
+              ${menuLoadError ? `
+                <div class="text-center py-12 px-4 bg-white rounded-3xl border border-red-200 shadow-sm flex flex-col items-center justify-center space-y-3">
+                  <div class="w-12 h-12 rounded-2xl bg-red-50 text-red-500 flex items-center justify-center text-2xl font-bold">⚠️</div>
+                  <p class="text-sm font-bold text-[#181C2E]">Failed to load menu.</p>
+                  <p class="text-xs text-[#646982]">${menuLoadError}</p>
+                  <button id="btn-retry-menu" class="mt-2 px-5 py-2.5 bg-[#FF7622] hover:bg-[#e0651a] text-white text-xs font-bold rounded-xl shadow-md transition-all active:scale-95 cursor-pointer">Retry</button>
+                </div>
+              ` : (isMenuLoading && rawDishes.length === 0) ? `
                 <div class="text-center py-16 px-4 bg-white rounded-3xl border border-[#E3E8ED] shadow-sm flex flex-col items-center justify-center">
                   <div class="w-8 h-8 border-3 border-[#FF7622] border-t-transparent rounded-full animate-spin mb-3"></div>
                   <p class="text-sm font-bold text-[#181C2E]">Loading Fresh Menu...</p>
                   <p class="text-xs text-[#646982] mt-1">Connecting to live cloud catalog</p>
                 </div>
+              ` : rawDishes.length === 0 ? `
+                <div class="text-center py-16 px-4 bg-white rounded-3xl border border-[#E3E8ED] shadow-sm">
+                  <p class="text-sm font-bold text-[#181C2E]">No dishes available</p>
+                  <p class="text-xs text-[#646982] mt-1">The kitchen has not loaded any menu items yet.</p>
+                </div>
               ` : (filteredItems.length === 0 ? `
                 <div class="text-center py-16 px-4 bg-white rounded-3xl border border-[#E3E8ED] shadow-sm">
-                  <p class="text-sm font-bold text-[#181C2E]">No dishes match your filter</p>
-                  <p class="text-xs text-[#646982] mt-1">Try resetting search or dietary filters</p>
-                  <button id="reset-filter-btn" class="mt-4 px-4 py-2 bg-[#F0F5FA] hover:bg-[#E3E8ED] text-xs font-bold rounded-xl text-[#181C2E]">Reset Filters</button>
+                  <p class="text-sm font-bold text-[#181C2E]">${(activeCategory && activeCategory !== 'All' && activeCategory !== 'all') ? 'No dishes in this category' : 'No dishes match your filter'}</p>
+                  <p class="text-xs text-[#646982] mt-1">Try selecting another category or resetting filters</p>
+                  <button id="reset-filter-btn" class="mt-4 px-4 py-2 bg-[#F0F5FA] hover:bg-[#E3E8ED] text-xs font-bold rounded-xl text-[#181C2E] cursor-pointer">Reset Filters</button>
                 </div>
               ` : filteredItems.map(item => renderItemCard(item, store)).join(''))}
             </div>
@@ -986,12 +984,13 @@ export function renderCustomerView(container, store, options = {}) {
   // Render individual dish card (Matching Restaurant View_01.png & Food - Burgers.png)
   function renderItemCard(item, store) {
     const isVeg = item.dietary_tag === 'Veg' || item.dietary === 'veg' || item.dietary === 'vegan';
+    const isSoldOut = item.is_available === false || (item.stock_quantity !== undefined && item.stock_quantity !== null && item.stock_quantity <= 0);
     const inCartQty = store.cart.items
       .filter(ci => ci.item.id === item.id)
       .reduce((sum, ci) => sum + ci.quantity, 0);
 
     return `
-      <div class="foodie-card-interactive bg-white rounded-3xl p-3.5 border border-[#E3E8ED] shadow-sm hover:shadow-md transition-all flex gap-3.5 ${!item.is_available ? 'opacity-50 grayscale pointer-events-none' : ''}">
+      <div class="foodie-card-interactive bg-white rounded-3xl p-3.5 border border-[#E3E8ED] shadow-sm hover:shadow-md transition-all flex gap-3.5 ${isSoldOut ? 'opacity-50 pointer-events-none grayscale' : ''}">
         <!-- Image with Chef Badge -->
         <div class="relative w-24 h-24 rounded-2xl overflow-hidden bg-[#F0F5FA] flex-shrink-0">
           <img src="${item.image_url}" alt="${item.name}" class="w-full h-full object-cover" loading="lazy" />
@@ -999,6 +998,11 @@ export function renderCustomerView(container, store, options = {}) {
             <span class="absolute top-1.5 left-1.5 bg-[#FF7622] text-white text-[9px] font-bold px-2 py-0.5 rounded-full shadow-xs">
               CHEF
             </span>
+          ` : ''}
+          ${isSoldOut ? `
+            <div class="absolute inset-0 bg-black/40 flex items-center justify-center p-1">
+              <span class="text-[9px] font-bold text-white uppercase tracking-wider bg-rose-600/90 px-1.5 py-0.5 rounded-md">Sold Out</span>
+            </div>
           ` : ''}
         </div>
 
@@ -1020,18 +1024,18 @@ export function renderCustomerView(container, store, options = {}) {
             </div>
 
             <h3 class="text-xs font-bold text-[#181C2E] leading-snug line-clamp-1">${item.name}</h3>
-            <p class="text-[11px] text-[#646982] line-clamp-2 mt-0.5 leading-relaxed">${item.description}</p>
+            <p class="text-[11px] text-[#646982] line-clamp-2 mt-0.5 leading-relaxed">${item.description || ''}</p>
           </div>
 
           <!-- Add Button / Qty adjust -->
           <div class="flex items-center justify-between mt-2 pt-2 border-t border-[#F0F5FA]">
             <span class="text-[10px] text-[#A0A5BA] font-medium flex items-center gap-1">
               <svg class="w-3 h-3 text-[#FF7622]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-              ${item.prep_time_mins}m prep
+              ${item.prep_time_mins || 15}m prep
             </span>
 
-            ${!item.is_available ? `
-              <span class="text-[11px] text-[#FF334B] font-bold">Sold Out</span>
+            ${isSoldOut ? `
+              <span class="text-[11px] text-[#FF334B] font-bold bg-rose-50 border border-rose-200 px-2 py-0.5 rounded-full">Sold Out / Unavailable</span>
             ` : inCartQty > 0 ? `
               <div class="inline-flex items-center bg-[#181C2E] text-white rounded-full p-1 px-1.5 shadow-xs">
                 <button data-quick-del="${item.id}" class="w-5 h-5 flex items-center justify-center text-xs font-bold text-white hover:text-[#FF7622] rounded-full">
@@ -1059,7 +1063,16 @@ export function renderCustomerView(container, store, options = {}) {
 
   // Render Customizer Modal (Matching Food Details_01.png)
   function renderCustomizerModal(item, notes) {
-    const isVeg = item.dietary === 'veg' || item.dietary === 'vegan';
+    const isVeg = item.dietary === 'veg' || item.dietary === 'vegan' || item.dietary_tag === 'Veg';
+    const variations = Array.isArray(item.variations) && item.variations.length > 0
+      ? item.variations
+      : (Array.isArray(item.variants) && item.variants.length > 0 ? item.variants : []);
+
+    if (variations.length > 0 && !selectedVariation) {
+      selectedVariation = variations[0];
+    }
+    const currentPrice = selectedVariation ? selectedVariation.price : item.price;
+
     return `
       <div class="fixed inset-0 z-50 bg-black/60 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4">
         <div class="bg-white border border-[#E3E8ED] rounded-t-3xl sm:rounded-3xl max-w-md w-full p-6 space-y-4 max-h-[90vh] overflow-y-auto text-[#181C2E] shadow-2xl relative">
@@ -1070,7 +1083,7 @@ export function renderCustomerView(container, store, options = {}) {
             <div class="absolute top-3 right-3 w-9 h-9 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-rose-500 shadow-sm cursor-pointer">
               ❤️
             </div>
-            <button id="close-customizer" class="absolute top-3 left-3 w-9 h-9 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-[#181C2E] shadow-sm hover:scale-105 transition-all text-xs font-bold">
+            <button id="close-customizer" class="absolute top-3 left-3 w-9 h-9 rounded-full bg-white/90 backdrop-blur-md flex items-center justify-center text-[#181C2E] shadow-sm hover:scale-105 transition-all text-xs font-bold cursor-pointer">
               ✕
             </button>
           </div>
@@ -1080,32 +1093,55 @@ export function renderCustomerView(container, store, options = {}) {
               <span class="w-3.5 h-3.5 rounded-md border ${isVeg ? 'border-[#059C6A]' : 'border-[#FF334B]'} flex items-center justify-center p-0.5 bg-white">
                 <span class="w-1.5 h-1.5 rounded-full ${isVeg ? 'bg-[#059C6A]' : 'bg-[#FF334B]'}"></span>
               </span>
-              <span class="text-[11px] font-bold text-[#FF7622] uppercase tracking-wider">${item.category}</span>
+              <span class="text-[11px] font-bold text-[#FF7622] uppercase tracking-wider">${item.category || ''}</span>
             </div>
             <h2 class="text-base font-bold text-[#181C2E]">${item.name}</h2>
-            <p class="text-xs text-[#646982] mt-1 leading-relaxed">${item.description}</p>
+            <p class="text-xs text-[#646982] mt-1 leading-relaxed">${item.description || ''}</p>
           </div>
 
+          <!-- Variations / Size Radio Pills -->
+          ${variations.length > 0 ? `
+            <div class="space-y-2 pt-1 border-t border-[#F0F5FA]">
+              <label class="text-xs font-bold text-[#181C2E] uppercase tracking-wider">Select Size / Portion</label>
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                ${variations.map((v, idx) => {
+                  const isSelected = selectedVariation ? (selectedVariation.size === v.size) : (idx === 0);
+                  return `
+                    <button 
+                      type="button"
+                      data-variation-size="${v.size}"
+                      data-variation-price="${v.price}"
+                      class="p-2.5 rounded-2xl border text-center transition-all cursor-pointer ${isSelected ? 'bg-[#FFF1E8] border-[#FF7622] text-[#FF7622] font-bold shadow-xs' : 'bg-[#F0F5FA] border-transparent hover:border-[#E3E8ED] text-[#181C2E] font-medium'}"
+                    >
+                      <div class="text-xs">${v.size}</div>
+                      <div class="text-[11px] font-bold mt-0.5">₹${v.price}</div>
+                    </button>
+                  `;
+                }).join('')}
+              </div>
+            </div>
+          ` : ''}
+
           <!-- Kitchen Instructions -->
-          <div class="space-y-1.5">
+          <div class="space-y-1.5 pt-1 border-t border-[#F0F5FA]">
             <label class="text-xs font-bold text-[#181C2E] uppercase tracking-wider">Kitchen Instructions (Optional)</label>
             <input 
               type="text" 
               id="cust-instructions" 
-              value="${notes}" 
+              value="${notes || ''}" 
               placeholder="e.g. less salt, dressing on the side, extra crispy" 
               class="foodie-input w-full text-xs"
             />
           </div>
 
-          <!-- Sticky Bottom CTA (Matching Food Details_01.png) -->
+          <!-- Sticky Bottom CTA -->
           <div class="pt-2">
             <button 
               id="confirm-custom-add" 
               class="w-full py-4 bg-[#FF7622] hover:bg-[#F15B00] text-white font-bold text-xs rounded-2xl flex items-center justify-between px-6 shadow-xl shadow-orange-500/30 active:scale-98 transition-all cursor-pointer uppercase tracking-wider"
             >
               <span>Add to Table Order</span>
-              <span class="font-extrabold text-sm">₹${item.price}</span>
+              <span class="font-extrabold text-sm">₹${currentPrice}</span>
             </button>
           </div>
 
@@ -1156,7 +1192,7 @@ export function renderCustomerView(container, store, options = {}) {
                       ✕
                     </button>
                   </div>
-                  <span class="text-xs font-bold text-[#FF7622]">₹${ci.item.price * ci.quantity}</span>
+                  <span class="text-xs font-bold text-[#FF7622]">₹${((ci.price !== undefined && ci.price !== null && !isNaN(ci.price)) ? Number(ci.price) : Number(ci.item.price)) * ci.quantity}</span>
                   ${ci.customization ? `
                     <p class="text-[10px] text-[#A0A5BA] mt-0.5 truncate">${ci.customization}</p>
                   ` : ''}
@@ -1759,8 +1795,13 @@ export function renderCustomerView(container, store, options = {}) {
     container.querySelectorAll('[data-quick-add]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const id = e.currentTarget.dataset.quickAdd;
-        const item = store.dishes?.find(d => d.id === id) || store.menuItems?.find(m => m.id === id);
-        if (item) store.addToCart(item, 1);
+        const cartItemIdx = store.cart.items.findIndex(ci => ci.item.id === id);
+        if (cartItemIdx >= 0) {
+          store.updateCartQuantity(cartItemIdx, 1);
+        } else {
+          const item = store.dishes?.find(d => d.id === id) || store.menuItems?.find(m => m.id === id);
+          if (item) store.addToCart(item, 1);
+        }
       });
     });
 
@@ -1776,16 +1817,50 @@ export function renderCustomerView(container, store, options = {}) {
     container.querySelectorAll('[data-customize-item]').forEach(btn => {
       btn.addEventListener('click', (e) => {
         const id = e.currentTarget.dataset.customizeItem;
-        customizerItem = store.dishes?.find(d => d.id === id) || store.menuItems?.find(m => m.id === id);
-        customInstructions = '';
+        const item = store.dishes?.find(d => d.id === id) || store.menuItems?.find(m => m.id === id);
+        if (item) {
+          if (item.is_available === false || (item.stock_quantity !== undefined && item.stock_quantity !== null && item.stock_quantity <= 0)) {
+            return;
+          }
+          customizerItem = item;
+          const vars = Array.isArray(item.variations) && item.variations.length > 0
+            ? item.variations
+            : (Array.isArray(item.variants) && item.variants.length > 0 ? item.variants : []);
+          selectedVariation = vars.length > 0 ? vars[0] : null;
+          customInstructions = '';
+          render();
+        }
+      });
+    });
+
+    // Variation buttons inside customizer
+    container.querySelectorAll('[data-variation-size]').forEach(btn => {
+      btn.addEventListener('click', (e) => {
+        const size = e.currentTarget.dataset.variationSize;
+        const price = parseFloat(e.currentTarget.dataset.variationPrice);
+        selectedVariation = { size, price };
         render();
       });
+    });
+
+    // Retry menu fetch
+    container.querySelector('#btn-retry-menu')?.addEventListener('click', () => {
+      triggerFreshMenuLoad();
+    });
+
+    // Reset filters button
+    container.querySelector('#reset-filter-btn')?.addEventListener('click', () => {
+      activeCategory = 'All';
+      searchQuery = '';
+      dietaryFilter = 'all';
+      render();
     });
 
     const closeCust = container.querySelector('#close-customizer');
     if (closeCust) {
       closeCust.addEventListener('click', () => {
         customizerItem = null;
+        selectedVariation = null;
         customInstructions = '';
         render();
       });
@@ -1803,8 +1878,13 @@ export function renderCustomerView(container, store, options = {}) {
       confirmCustomAdd.addEventListener('click', () => {
         if (customizerItem) {
           const customNote = customInstructions ? customInstructions.trim() : '';
-          store.addToCart(customizerItem, 1, customNote);
+          const variationText = selectedVariation ? selectedVariation.size : '';
+          const fullCustomization = [variationText, customNote].filter(Boolean).join(' - ');
+          const activePrice = selectedVariation ? Number(selectedVariation.price) : Number(customizerItem.price || 0);
+
+          store.addToCart(customizerItem, 1, fullCustomization, activePrice);
           customizerItem = null;
+          selectedVariation = null;
           customInstructions = '';
           render();
         }
@@ -1865,14 +1945,22 @@ export function renderCustomerView(container, store, options = {}) {
         ? crypto.randomUUID()
         : `AYS-${Math.floor(100 + Math.random() * 900)}`;
 
-      let sessionToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_table_session') : null;
+      const venueKeyId = store.venue?.id || store.venue?.cafe_id || activeCafeId;
+      const scopedSessionKey = `ays_table_session_${venueKeyId}_${tableId}`;
+      const scopedOrderIdKey = `ays_active_order_id_${venueKeyId}_${tableId}`;
+
+      let sessionToken = (typeof localStorage !== 'undefined')
+        ? (localStorage.getItem(scopedSessionKey) || localStorage.getItem('ays_table_session'))
+        : null;
       if (!sessionToken && typeof crypto !== 'undefined' && crypto.randomUUID) {
         sessionToken = crypto.randomUUID();
       } else if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
         sessionToken = store.generateTableSessionToken();
       }
       try {
+        localStorage.setItem(scopedSessionKey, sessionToken);
         localStorage.setItem('ays_table_session', sessionToken);
+        localStorage.setItem(scopedOrderIdKey, orderId);
         localStorage.setItem('ays_active_order_id', orderId);
         localStorage.setItem('ays_table_session_table', String(tableId));
       } catch {}
@@ -1898,7 +1986,8 @@ export function renderCustomerView(container, store, options = {}) {
           dish_name: ci.item.name,
           name: ci.item.name,
           quantity: ci.quantity,
-          price: ci.item.price,
+          price: (ci.price !== undefined && ci.price !== null && !isNaN(ci.price)) ? Number(ci.price) : Number(ci.item.price),
+          unit_price: (ci.price !== undefined && ci.price !== null && !isNaN(ci.price)) ? Number(ci.price) : Number(ci.item.price),
           notes: ci.customization || '',
           customization: ci.customization || ''
         })),
@@ -2052,19 +2141,24 @@ export function renderCustomerView(container, store, options = {}) {
         if (btnText) btnText.textContent = 'Verifying with Bank...';
 
         try {
-          let sessionToken = (typeof localStorage !== 'undefined') ? localStorage.getItem('ays_table_session') : null;
+          const targetVenueId = window.store?.venue?.id || store.venue?.id || 'cafe-first-way-cafe-hotc';
+          const scopedSessionKey = `ays_table_session_${targetVenueId}_${currentTableNumber}`;
+
+          let sessionToken = (typeof localStorage !== 'undefined')
+            ? (localStorage.getItem(scopedSessionKey) || localStorage.getItem('ays_table_session'))
+            : null;
           if (!sessionToken && typeof crypto !== 'undefined' && crypto.randomUUID) {
             sessionToken = crypto.randomUUID();
           } else if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
             sessionToken = store.generateTableSessionToken();
           }
           try {
+            localStorage.setItem(scopedSessionKey, sessionToken);
             localStorage.setItem('ays_table_session', sessionToken);
             localStorage.setItem('ays_table_session_table', String(currentTableNumber));
           } catch {}
 
           const cartTotals = store.getCartTotals();
-          const targetVenueId = window.store?.venue?.id || store.venue?.id || 'cafe-first-way-cafe-hotc';
           
           const activeOrderId = (orderId && orderId !== 'null' && orderId !== 'undefined' && orderId !== '') 
             ? orderId 
@@ -2076,7 +2170,8 @@ export function renderCustomerView(container, store, options = {}) {
             dish_name: ci.item.name,
             name: ci.item.name,
             quantity: ci.quantity,
-            price: ci.item.price,
+            price: (ci.price !== undefined && ci.price !== null && !isNaN(ci.price)) ? Number(ci.price) : Number(ci.item.price),
+            unit_price: (ci.price !== undefined && ci.price !== null && !isNaN(ci.price)) ? Number(ci.price) : Number(ci.item.price),
             notes: ci.customization || '',
             customization: ci.customization || ''
           }));
@@ -2512,6 +2607,10 @@ export function renderCustomerView(container, store, options = {}) {
     if (!clearedTable || clearedTable == tableNumber) {
       if (typeof localStorage !== 'undefined') {
         try {
+          if (venueId) {
+            localStorage.removeItem(`ays_table_session_${venueId}_${clearedTable || tableNumber}`);
+            localStorage.removeItem(`ays_active_order_id_${venueId}_${clearedTable || tableNumber}`);
+          }
           localStorage.removeItem('ays_table_session');
           localStorage.removeItem('ays_active_order_id');
           localStorage.removeItem('ays_table_session_table');
@@ -2536,6 +2635,15 @@ export function renderCustomerView(container, store, options = {}) {
     render();
   };
 
+  const onOrderRejected = (e) => {
+    const formSection = container.querySelector('#utr-form-section');
+    const waitingCard = container.querySelector('#utr-waiting-card');
+    const rejectedCard = container.querySelector('#utr-rejected-card');
+    if (waitingCard) waitingCard.classList.add('hidden');
+    if (formSection) formSection.classList.add('hidden');
+    if (rejectedCard) rejectedCard.classList.remove('hidden');
+  };
+
   const onOrderApproved = (e) => {
     showUPIModal = false;
     const modalEl = container.querySelector('#dynamic-upi-modal-overlay');
@@ -2548,6 +2656,8 @@ export function renderCustomerView(container, store, options = {}) {
   };
 
   if (typeof window !== 'undefined') {
+    window.removeEventListener('ORDER_REJECTED', onOrderRejected);
+    window.addEventListener('ORDER_REJECTED', onOrderRejected);
     window.removeEventListener('TABLE_SESSION_CLEARED', onSessionCleared);
     window.addEventListener('TABLE_SESSION_CLEARED', onSessionCleared);
     window.removeEventListener('TABLE_SESSION_UPDATED', onSessionUpdated);
@@ -2558,20 +2668,31 @@ export function renderCustomerView(container, store, options = {}) {
     window.addEventListener('ORDER_APPROVED', onOrderApproved);
   }
 
-  // When mounting, if store.dishes is empty, load dishes from Supabase before rendering
-  if ((!store.dishes || store.dishes.length === 0) && typeof store.loadDishes === 'function') {
-    (async () => {
+  // Trigger fresh menu load for venueId unconditionally (do NOT skip if cached)
+  const triggerFreshMenuLoad = async () => {
+    if (typeof store.loadDishes === 'function' && venueId) {
       try {
+        isMenuLoading = !store.dishes || store.dishes.length === 0;
+        if (isMenuLoading) render();
         await store.loadDishes(venueId);
+        isMenuLoading = false;
+        menuLoadError = null;
       } catch (err) {
         console.warn('[CustomerView] Failed to load dishes from Supabase:', err);
+        isMenuLoading = false;
+        if (!store.dishes || store.dishes.length === 0) {
+          menuLoadError = err?.message || 'Failed to load menu';
+        }
       }
       render();
-    })();
-  } else {
-    // Initial render
-    render();
-  }
+    }
+  };
+
+  // Initial render
+  render();
+
+  // Always trigger fresh fetch for venueId
+  triggerFreshMenuLoad();
 
   return () => {
     unsubscribe();
