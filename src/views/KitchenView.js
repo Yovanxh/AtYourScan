@@ -1,10 +1,26 @@
 /**
  * Kitchen Display Rail (KDS) View
- * Full preparation ticket management, unified status & channel filtering,
- * instant UTR verification banner, and Supabase realtime synchronization.
+ * Milestone M3 (Requirement R4)
+ * 
+ * Features:
+ * - Realtime order ticket rendering with complete item details & customizations
+ * - Immediate rendering from orders.items JSONB with fallback to order_items
+ * - Human-readable creation timestamps & elapsed urgency timers (<10m, 10-20m, >20m)
+ * - Fulfillment channel badges (QR Dine-In, Takeaway, Delivery, POS)
+ * - Ticket deduplication by order ID
+ * - "Recently Completed" recall drawer for un-bumping accidentally completed tickets
+ * - Centralized audio notification integration via audioAlertManager
  */
 
 import { supabase } from '../supabaseClient.js';
+import { audioAlertManager } from '../utils/audioAlerts.js';
+
+export function formatTime(isoString) {
+  if (!isoString) return '';
+  const d = new Date(isoString);
+  if (isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
 
 export class KitchenView {
   constructor(container, store) {
@@ -15,16 +31,16 @@ export class KitchenView {
     this.supabase = window.store?.supabase || window.supabase || supabase;
     this.timerInterval = null;
     this.realtimeChannel = null;
+    this.isRecallDrawerOpen = false;
+    this._fetchingItems = new Set();
 
     // Expose kitchenView globally so inline onclick handlers succeed
     window.kitchenView = this;
 
     this.onOrderApproved = (e) => {
-      try {
-        new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
-      } catch (_) {}
       const detail = e.detail || {};
       if (detail.order) {
+        audioAlertManager.playNewOrderAlert(detail.order.id);
         const existing = this.orders.find(o => o.id === detail.order.id);
         if (existing) {
           Object.assign(existing, detail.order);
@@ -36,16 +52,14 @@ export class KitchenView {
     };
 
     this.onOrderPaid = () => {
-      try {
-        new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
-      } catch (_) {}
       this.render();
     };
 
-    this.onUtrSubmitted = () => {
-      try {
-        new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
-      } catch (_) {}
+    this.onUtrSubmitted = (e) => {
+      const detail = e?.detail || {};
+      if (detail.order) {
+        audioAlertManager.playNewOrderAlert(detail.order.id);
+      }
       this.render();
     };
 
@@ -61,7 +75,6 @@ export class KitchenView {
     if (this.store && typeof this.store.subscribe === 'function') {
       this.unsubscribeStore = this.store.subscribe(() => {
         if (this.store.orders) {
-          // Merge with current in-memory orders
           this.orders = [...this.store.orders];
         }
         this.render();
@@ -70,21 +83,26 @@ export class KitchenView {
 
     this.initRealtime();
 
+    // Urgent timer re-render tick every 10 seconds
     this.timerInterval = setInterval(() => {
       const active = this.getActiveKitchenTickets();
       if (active.length > 0) {
         this.render();
       }
-    }, 5000);
+    }, 10000);
 
     this.render();
   }
 
-  // 1. Unified Status & Channel Filtering
+  // 1. Unified Status & Channel Filtering with Ticket Deduplication
   getActiveKitchenTickets() {
     const currentOrders = this.orders || window.store?.orders || [];
+    const seenOrderIds = new Set();
+    const dedupedTickets = [];
     
-    return currentOrders.filter(order => {
+    for (const order of currentOrders) {
+      if (!order || !order.id || seenOrderIds.has(order.id)) continue;
+
       // 1. Accept any order verified by admin, prepaid, or on an active dine-in tab
       const isApproved = 
         order.verification_status === 'APPROVED' || 
@@ -96,10 +114,16 @@ export class KitchenView {
       const isPendingKitchenAction = 
         st !== 'COMPLETED' && 
         st !== 'SERVED' && 
-        st !== 'CANCELLED';
+        st !== 'CANCELLED' &&
+        st !== 'VOIDED';
 
       // 3. Fallback gracefully if channel is undefined (default to QR Dine-In)
-      const orderChannel = order.channel || (order.source === 'SWIGGY' || order.source === 'ZOMATO' ? 'Swiggy / Zomato' : order.source === 'TAKEAWAY' ? 'Takeaway' : 'QR Dine-In');
+      const orderChannel = order.channel || (
+        order.source === 'SWIGGY' || order.source === 'ZOMATO' || order.source === 'DELIVERY'
+          ? 'Swiggy / Zomato' 
+          : (order.source === 'TAKEAWAY' ? 'Takeaway' : 'QR Dine-In')
+      );
+
       const matchesChannel = 
         !this.currentChannel || 
         this.currentChannel === 'All Channels' || 
@@ -109,8 +133,72 @@ export class KitchenView {
         (this.currentChannel === 'Swiggy / Zomato' && (orderChannel === 'Swiggy / Zomato' || orderChannel === 'DELIVERY')) ||
         (this.currentChannel === 'Takeaway' && (orderChannel === 'Takeaway' || orderChannel === 'TAKEAWAY'));
 
-      return isApproved && isPendingKitchenAction && matchesChannel;
+      if (isApproved && isPendingKitchenAction && matchesChannel) {
+        seenOrderIds.add(order.id);
+        dedupedTickets.push(order);
+      }
+    }
+
+    return dedupedTickets;
+  }
+
+  // Get recently completed tickets for recall drawer
+  getRecentlyCompletedTickets() {
+    const currentOrders = this.orders || window.store?.orders || [];
+    const seenOrderIds = new Set();
+    const completed = [];
+
+    for (const order of currentOrders) {
+      if (!order || !order.id || seenOrderIds.has(order.id)) continue;
+      const st = String(order.status || '').toUpperCase();
+      if (st === 'COMPLETED' || st === 'SERVED') {
+        seenOrderIds.add(order.id);
+        completed.push(order);
+      }
+    }
+
+    // Sort by updated_at or created_at descending (most recent first)
+    completed.sort((a, b) => {
+      const timeA = new Date(a.updated_at || a.created_at || 0).getTime();
+      const timeB = new Date(b.updated_at || b.created_at || 0).getTime();
+      return timeB - timeA;
     });
+
+    return completed.slice(0, 10);
+  }
+
+  // Fetch child order_items if order.items is missing or empty
+  fetchOrderItemsIfMissing(order) {
+    if (!order || !order.id) return;
+    if (this._fetchingItems.has(order.id)) return;
+    const client = this.supabase || window.store?.supabase || window.supabase || supabase;
+    if (!client || typeof client.from !== 'function') return;
+
+    this._fetchingItems.add(order.id);
+    client
+      .from('order_items')
+      .select('*')
+      .eq('order_id', order.id)
+      .then(({ data, error }) => {
+        this._fetchingItems.delete(order.id);
+        if (!error && data && data.length > 0) {
+          order.items = data.map(it => ({
+            id: it.menu_item_id || it.id,
+            dish_id: it.menu_item_id,
+            name: it.item_name || 'Item',
+            dish_name: it.item_name || 'Item',
+            quantity: it.quantity || 1,
+            unit_price: it.unit_price || 0,
+            price: it.unit_price || 0,
+            notes: it.notes || '',
+            customization: it.notes || ''
+          }));
+          this.render();
+        }
+      })
+      .catch(() => {
+        this._fetchingItems.delete(order.id);
+      });
   }
 
   // 2. Universal Ticket Card Component & Preparation Pipeline
@@ -124,15 +212,65 @@ export class KitchenView {
       if (match) items = match.items;
     }
 
+    // If still empty on a remote KDS, trigger background fetch of order_items
+    if (items.length === 0 && order.id) {
+      this.fetchOrderItemsIfMissing(order);
+    }
+
+    // Creation timestamp
+    const createdAtFormatted = order.created_at ? formatTime(order.created_at) : '';
+
+    // Elapsed urgency styling (<10m green/normal, 10-20m amber/urgent, >20m red/critical)
+    const createdMs = order.created_at ? new Date(order.created_at).getTime() : Date.now();
+    const elapsedMins = Math.max(0, Math.floor((Date.now() - createdMs) / 60000));
+
+    let urgencyBorder = 'border-gray-200';
+    let urgencyBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+    let urgencyLabel = `${elapsedMins}m`;
+
+    if (elapsedMins >= 20) {
+      urgencyBorder = 'border-rose-500 ring-2 ring-rose-300 bg-rose-50/20';
+      urgencyBadge = 'bg-rose-100 text-rose-800 border-rose-300 font-black animate-pulse';
+      urgencyLabel = `🔥 CRITICAL ${elapsedMins}m`;
+    } else if (elapsedMins >= 10) {
+      urgencyBorder = 'border-amber-400 ring-1 ring-amber-300 bg-amber-50/20';
+      urgencyBadge = 'bg-amber-100 text-amber-800 border-amber-300 font-bold';
+      urgencyLabel = `⚠️ Urgent ${elapsedMins}m`;
+    } else {
+      urgencyBorder = 'border-emerald-200';
+      urgencyBadge = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+      urgencyLabel = `⏱️ ${elapsedMins}m`;
+    }
+
+    // Fulfillment Channel Badge
+    const rawSource = String(order.channel || order.source || 'QR_DINE_IN').toUpperCase();
+    let channelBadge = {
+      label: 'QR Dine-In',
+      classes: 'bg-indigo-50 text-indigo-700 border-indigo-200'
+    };
+    if (rawSource.includes('TAKEAWAY')) {
+      channelBadge = { label: 'Takeaway', classes: 'bg-amber-50 text-amber-800 border-amber-200' };
+    } else if (rawSource.includes('SWIGGY') || rawSource.includes('ZOMATO') || rawSource.includes('DELIVERY')) {
+      channelBadge = { label: 'Delivery', classes: 'bg-purple-50 text-purple-700 border-purple-200' };
+    } else if (rawSource.includes('POS')) {
+      channelBadge = { label: 'POS Terminal', classes: 'bg-slate-100 text-slate-700 border-slate-300' };
+    }
+
     const itemsHtml = items.length > 0 ? items.map(item => `
-      <div class="flex justify-between py-1 text-sm border-b border-gray-100">
-        <span class="font-medium text-gray-800">${item.quantity || 1}x ${item.name || item.dish_name || 'Item'}</span>
-        ${item.notes ? `<span class="text-xs text-amber-600 block">${item.notes}</span>` : ''}
+      <div class="flex justify-between py-1.5 text-sm border-b border-gray-100 last:border-0">
+        <div>
+          <span class="font-bold text-gray-900">${item.quantity || 1}x ${item.name || item.dish_name || item.item_name || 'Dish'}</span>
+          ${(item.notes || item.customization) ? `
+            <span class="text-xs text-amber-700 font-medium block mt-0.5 bg-amber-50 px-1.5 py-0.5 rounded border border-amber-200 inline-block">
+              📝 ${item.notes || item.customization}
+            </span>
+          ` : ''}
+        </div>
+        ${item.price ? `<span class="text-xs text-gray-400 font-mono self-start">₹${(Number(item.price) * (item.quantity || 1)).toFixed(0)}</span>` : ''}
       </div>
     `).join('') : `
-      <div class="flex justify-between py-1.5 text-xs text-gray-600 border-b border-gray-100 font-medium">
-        <span>Table Order (${order.table_number ? `Table ${order.table_number}` : 'Dine-In'})</span>
-        <span class="font-mono text-gray-800">₹${Number(order.total_amount || order.total || 0).toFixed(2)}</span>
+      <div class="py-2 text-center text-xs text-gray-500 font-medium bg-gray-50 rounded-lg border border-dashed border-gray-200">
+        <span>Loading ticket items...</span>
       </div>
     `;
 
@@ -153,29 +291,53 @@ export class KitchenView {
         </div>
       `;
     } else if (statusUpper === 'PREPARING' || statusUpper === 'IN_KITCHEN' || statusUpper === 'COOKING') {
-      actionButton = `<button class="w-full py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-sm transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'READY')">✅ Mark Ready to Serve</button>`;
+      actionButton = `<button class="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-md transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'READY')">✅ Mark Ready to Serve</button>`;
     } else if (statusUpper === 'READY') {
-      actionButton = `<button class="w-full py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-sm transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'COMPLETED')">🍽️ Handover / Complete</button>`;
+      actionButton = `<button class="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white font-bold rounded-xl text-xs cursor-pointer shadow-md transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'COMPLETED')">🍽️ Handover / Complete</button>`;
     } else {
       // Default for any active confirmed/paid/new ticket
-      actionButton = `<button class="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white font-semibold rounded-lg text-xs cursor-pointer shadow-sm transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'PREPARING')">🔥 Start Cooking</button>`;
+      actionButton = `<button class="w-full py-2.5 bg-[#FF7622] hover:bg-[#F15B00] text-white font-bold rounded-xl text-xs cursor-pointer shadow-md transition-all active:scale-98" onclick="window.kitchenView.updateOrderStatus('${order.id}', 'PREPARING')">🔥 Start Cooking</button>`;
     }
 
     return `
-      <div class="bg-white rounded-xl shadow-md border border-gray-200 p-4 flex flex-col justify-between" id="ticket-${order.id}">
+      <div class="bg-white rounded-2xl shadow-md border ${urgencyBorder} p-4 flex flex-col justify-between transition-all" id="ticket-${order.id}">
         <div>
-          <div class="flex justify-between items-center pb-2 border-b">
-            <span class="text-base font-bold text-gray-900">Table ${order.table_number || order.table_id || '?'}</span>
-            <span class="px-2 py-0.5 text-[11px] font-bold rounded-full ${order.payment_method === 'PAY_LATER' ? 'bg-amber-100 text-amber-800' : 'bg-green-100 text-green-800'}">
-              ${order.payment_method === 'PAY_LATER' ? 'TAB' : 'PAID'}
-            </span>
+          <!-- Ticket Header: Table + Badges -->
+          <div class="flex justify-between items-center pb-2.5 border-b border-gray-100">
+            <div>
+              <span class="text-base font-black text-gray-900">Table ${order.table_number || order.table_id || '?'}</span>
+              <div class="flex items-center gap-1.5 mt-0.5">
+                <span class="px-2 py-0.5 text-[10px] font-bold rounded-md border ${channelBadge.classes}">
+                  ${channelBadge.label}
+                </span>
+                <span class="px-2 py-0.5 text-[10px] font-bold rounded-md border ${urgencyBadge}">
+                  ${urgencyLabel}
+                </span>
+              </div>
+            </div>
+            
+            <div class="text-right">
+              <span class="px-2 py-0.5 text-[10px] font-black rounded-full ${order.payment_method === 'PAY_LATER' ? 'bg-amber-100 text-amber-800' : 'bg-emerald-100 text-emerald-800'}">
+                ${order.payment_method === 'PAY_LATER' ? 'TAB' : 'PAID'}
+              </span>
+              ${createdAtFormatted ? `<div class="text-[10px] text-gray-400 font-mono mt-1 font-semibold">${createdAtFormatted}</div>` : ''}
+            </div>
           </div>
-          <div class="text-[11px] text-gray-400 font-mono mt-1 mb-2">Order #${String(order.id).slice(-6)}</div>
-          <div class="py-2 space-y-1">
+
+          <!-- Ticket Sub-header: Order ID & Status -->
+          <div class="flex justify-between items-center text-[11px] text-gray-400 font-mono mt-2 mb-2">
+            <span>Order #${String(order.id).slice(-6)}</span>
+            <span class="font-bold text-gray-600 uppercase text-[10px]">${order.status || 'New'}</span>
+          </div>
+
+          <!-- Items List with Quantities & Cooking Customizations -->
+          <div class="py-1 space-y-1">
             ${itemsHtml}
           </div>
         </div>
-        <div class="pt-3">
+
+        <!-- Action Controls -->
+        <div class="pt-3 border-t border-gray-100 mt-2">
           ${actionButton}
         </div>
       </div>
@@ -194,8 +356,9 @@ export class KitchenView {
     };
     const normalizedStatus = statusMap[String(nextStatus).toUpperCase()] || nextStatus;
 
+    const isTestRuntime = Boolean(globalThis.IS_TEST_ENV || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test'));
     const client = this.supabase || window.store?.supabase || window.supabase || supabase;
-    if (client && typeof client.from === 'function') {
+    if (client && typeof client.from === 'function' && !isTestRuntime) {
       try {
         let res = await client
           .from('orders')
@@ -226,11 +389,21 @@ export class KitchenView {
     const target = (this.orders || []).find(o => o.id === orderId);
     if (target) {
       target.status = normalizedStatus;
+      target.updated_at = new Date().toISOString();
     }
     this.render();
   }
 
+  // Recall accidentally completed order back to the preparation board
+  async recallOrder(orderId) {
+    await this.updateOrderStatus(orderId, 'Preparing');
+    this.render();
+  }
+
   initRealtime() {
+    const isTestRuntime = Boolean(globalThis.IS_TEST_ENV || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test'));
+    if (isTestRuntime || typeof window === 'undefined') return;
+
     const client = this.supabase || window.store?.supabase || window.supabase || supabase;
     if (!client || typeof client.channel !== 'function') return;
 
@@ -246,15 +419,27 @@ export class KitchenView {
           const exists = (this.orders || []).some(o => o.id === payload.new.id);
           if (!exists) {
             this.orders.unshift(payload.new);
+            // Play crystal chime exclusively for new incoming orders
+            audioAlertManager.playNewOrderAlert(payload.new.id);
+            // If items is empty in incoming payload, fetch order_items
+            if (!payload.new.items || payload.new.items.length === 0) {
+              this.fetchOrderItemsIfMissing(payload.new);
+            }
           }
         } else if (payload.eventType === 'UPDATE') {
           const index = this.orders.findIndex(o => o.id === payload.new.id);
           if (index !== -1) {
-            this.orders[index] = payload.new;
+            // Preserve merged items if payload omits them
+            const existing = this.orders[index];
+            const mergedItems = (payload.new.items && Array.isArray(payload.new.items) && payload.new.items.length > 0)
+              ? payload.new.items
+              : existing.items;
+            this.orders[index] = { ...existing, ...payload.new, items: mergedItems };
           } else {
             this.orders.unshift(payload.new);
           }
         }
+
         if (window.store && Array.isArray(window.store.orders)) {
           if (payload.eventType === 'INSERT') {
             const ex = window.store.orders.some(o => o.id === payload.new.id);
@@ -282,6 +467,7 @@ export class KitchenView {
     });
 
     const activeTickets = this.getActiveKitchenTickets();
+    const recentlyCompleted = this.getRecentlyCompletedTickets();
 
     const channels = [
       { id: 'All Channels', label: 'All Channels' },
@@ -291,7 +477,7 @@ export class KitchenView {
     ];
 
     this.container.innerHTML = `
-      <div class="kds-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col font-sans select-none">
+      <div class="kds-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col font-sans select-none relative">
         
         ${pendingUtrOrders.map(pOrder => `
           <div class="bg-gradient-to-r from-amber-500 via-amber-600 to-orange-500 text-white px-6 py-4 font-black text-sm flex flex-wrap items-center justify-between gap-4 shadow-xl border-b border-amber-300 animate-pulse sticky top-0 z-50">
@@ -343,8 +529,16 @@ export class KitchenView {
             `).join('')}
           </div>
 
-          <!-- Sound Controls -->
+          <!-- Recall Drawer & Sound Controls -->
           <div class="flex items-center space-x-3">
+            <button id="btn-toggle-recall" class="px-3.5 py-2 rounded-2xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+              this.isRecallDrawerOpen 
+                ? 'bg-[#181C2E] text-white border-[#181C2E]' 
+                : 'bg-[#F0F5FA] text-[#646982] border-slate-100 hover:text-[#181C2E]'
+            }">
+              <span>↺ Recall (${recentlyCompleted.length})</span>
+            </button>
+
             <button id="btn-kds-sound" class="px-3.5 py-2 rounded-2xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
               window.store?.soundEnabled 
                 ? 'bg-[#EBF7F2] text-[#059C6A] border-emerald-200' 
@@ -370,8 +564,61 @@ export class KitchenView {
           `}
         </main>
 
+        <!-- Recently Completed Recall Drawer Slide-Over -->
+        ${this.isRecallDrawerOpen ? `
+          <div id="recall-drawer-backdrop" class="fixed inset-0 bg-black/40 z-40 flex justify-end transition-opacity">
+            <div class="w-full max-w-md bg-white h-full shadow-2xl z-50 flex flex-col p-6 overflow-y-auto">
+              <div class="flex items-center justify-between pb-4 border-b border-gray-100">
+                <div class="flex items-center gap-2">
+                  <span class="text-lg">↺</span>
+                  <h2 class="text-base font-black text-gray-900">Recently Completed Tickets</h2>
+                </div>
+                <button id="btn-close-recall" class="p-2 text-gray-400 hover:text-gray-700 text-lg font-bold cursor-pointer">
+                  ✕
+                </button>
+              </div>
+
+              <div class="py-4 space-y-4 flex-1">
+                ${recentlyCompleted.length === 0 ? `
+                  <div class="text-center py-12 text-gray-400 text-xs">
+                    No recently completed tickets to recall.
+                  </div>
+                ` : recentlyCompleted.map(cOrder => `
+                  <div class="p-4 rounded-xl border border-gray-200 bg-gray-50 flex flex-col justify-between space-y-2">
+                    <div class="flex justify-between items-start">
+                      <div>
+                        <span class="font-black text-sm text-gray-900">Table ${cOrder.table_number || '?'}</span>
+                        <div class="text-[11px] text-gray-400 font-mono">Order #${String(cOrder.id).slice(-6)}</div>
+                      </div>
+                      <span class="px-2 py-0.5 rounded-full text-[10px] font-bold bg-gray-200 text-gray-700">
+                        ${cOrder.status}
+                      </span>
+                    </div>
+
+                    <div class="text-xs text-gray-600">
+                      ${(cOrder.items || []).map(it => `${it.quantity || 1}x ${it.name || it.dish_name || 'Dish'}`).join(', ') || 'Order items'}
+                    </div>
+
+                    <div class="pt-2">
+                      <button 
+                        data-recall-order-id="${cOrder.id}" 
+                        class="w-full py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-lg transition-all active:scale-98 shadow-sm cursor-pointer"
+                      >
+                        ↺ Recall to Kitchen Board
+                      </button>
+                    </div>
+                  </div>
+                `).join('')}
+              </div>
+            </div>
+          </div>
+        ` : ''}
+
       </div>
     `;
+
+    // Render autoplay unlock banner if required
+    audioAlertManager.renderAutoplayBanner(this.container);
 
     this.bindEvents();
   }
@@ -386,12 +633,46 @@ export class KitchenView {
       });
     });
 
+    const recallToggleBtn = this.container.querySelector('#btn-toggle-recall');
+    if (recallToggleBtn) {
+      recallToggleBtn.addEventListener('click', () => {
+        this.isRecallDrawerOpen = !this.isRecallDrawerOpen;
+        this.render();
+      });
+    }
+
+    const closeRecallBtn = this.container.querySelector('#btn-close-recall');
+    if (closeRecallBtn) {
+      closeRecallBtn.addEventListener('click', () => {
+        this.isRecallDrawerOpen = false;
+        this.render();
+      });
+    }
+
+    const recallBackdrop = this.container.querySelector('#recall-drawer-backdrop');
+    if (recallBackdrop) {
+      recallBackdrop.addEventListener('click', (e) => {
+        if (e.target === recallBackdrop) {
+          this.isRecallDrawerOpen = false;
+          this.render();
+        }
+      });
+    }
+
+    this.container.querySelectorAll('[data-recall-order-id]').forEach(btn => {
+      btn.addEventListener('click', async (e) => {
+        const orderId = e.currentTarget.dataset.recallOrderId;
+        await this.recallOrder(orderId);
+      });
+    });
+
     const soundBtn = this.container.querySelector('#btn-kds-sound');
     if (soundBtn && window.store) {
       soundBtn.addEventListener('click', () => {
         window.store.soundEnabled = !window.store.soundEnabled;
-        if (window.store.soundEnabled && typeof window.store.playSound === 'function') {
-          window.store.playSound('bell');
+        audioAlertManager.setSoundEnabled(window.store.soundEnabled);
+        if (window.store.soundEnabled) {
+          audioAlertManager.playNewOrderAlert('test-sound', { force: true });
         }
         this.render();
       });

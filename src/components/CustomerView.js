@@ -24,6 +24,8 @@ export function renderCustomerView(container, store, options = {}) {
   let menuLoadError = null;
   let currentOfferIndex = 0;
   let tableNumber = optionsObj.tableNumber || (store.cart && store.cart.table_number) || null;
+  let isSubmittingOrder = false;
+  let orderSubmitError = null;
 
   function render() {
     let targetTenant = null;
@@ -1274,6 +1276,16 @@ export function renderCustomerView(container, store, options = {}) {
 
             <!-- Checkout CTAs -->
             <div class="space-y-2.5 pt-1">
+              ${orderSubmitError ? `
+                <div id="order-submit-error-banner" class="w-full p-3.5 bg-rose-50 border border-rose-200 text-rose-800 text-xs font-semibold rounded-2xl flex items-start gap-2 shadow-sm animate-shake">
+                  <span class="text-base leading-none">⚠️</span>
+                  <div class="flex-1">
+                    <span class="font-bold block">Order Placement Failed</span>
+                    <span class="text-[11px] text-rose-700">${orderSubmitError}</span>
+                  </div>
+                </div>
+              ` : ''}
+
               ${(typeof store.isMaintenanceMode === 'function' && store.isMaintenanceMode()) ? `
                 <div id="cart-maintenance-notice" class="w-full py-4 px-4 bg-amber-500/15 border border-amber-500/35 text-amber-900 text-xs font-bold rounded-2xl text-center select-none shadow-sm">
                   <span class="block text-sm">⏸️ Dine-In Ordering Paused</span>
@@ -1282,18 +1294,30 @@ export function renderCustomerView(container, store, options = {}) {
               ` : `
                 <button 
                   id="btn-place-order-upi" 
-                  class="w-full py-4 bg-[#FF7622] hover:bg-[#F15B00] text-white font-bold text-xs rounded-2xl shadow-xl shadow-orange-500/30 flex items-center justify-center gap-2 active:scale-98 transition-all cursor-pointer uppercase tracking-wider"
+                  class="w-full py-4 bg-[#FF7622] hover:bg-[#F15B00] text-white font-bold text-xs rounded-2xl shadow-xl shadow-orange-500/30 flex items-center justify-center gap-2 active:scale-98 transition-all cursor-pointer uppercase tracking-wider ${isSubmittingOrder ? 'opacity-70 pointer-events-none' : ''}"
+                  ${isSubmittingOrder ? 'disabled' : ''}
                 >
-                  <span>⚡ Instant Pay (UPI)</span>
-                  <span class="text-sm">₹${totals.total}</span>
+                  ${isSubmittingOrder ? `
+                    <div class="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                    <span>Processing...</span>
+                  ` : `
+                    <span>⚡ Instant Pay (UPI)</span>
+                    <span class="text-sm">₹${totals.total}</span>
+                  `}
                 </button>
 
                 <div class="pt-1">
                   <button 
                     id="btn-place-order-table" 
-                    class="w-full py-3.5 bg-[#F0F5FA] hover:bg-[#E2E8F0] text-[#181C2E] text-xs font-bold rounded-2xl text-center active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1.5"
+                    class="w-full py-3.5 bg-[#F0F5FA] hover:bg-[#E2E8F0] text-[#181C2E] text-xs font-bold rounded-2xl text-center active:scale-98 transition-all cursor-pointer flex items-center justify-center gap-1.5 ${isSubmittingOrder ? 'opacity-70 pointer-events-none' : ''}"
+                    ${isSubmittingOrder ? 'disabled' : ''}
                   >
-                    <span>🍽️ Pay Later (Keep Tab Open)</span>
+                    ${isSubmittingOrder ? `
+                      <div class="w-4 h-4 border-2 border-[#181C2E] border-t-transparent rounded-full animate-spin"></div>
+                      <span>Placing Order...</span>
+                    ` : `
+                      <span>🍽️ Pay Later (Keep Tab Open)</span>
+                    `}
                   </button>
                 </div>
               `}
@@ -1928,7 +1952,10 @@ export function renderCustomerView(container, store, options = {}) {
     });
 
     // Dedicated fireOrderToKitchen handler conforming to relational specifications
-    const fireOrderToKitchen = (paymentMode = 'PAY_AT_COUNTER') => {
+    const fireOrderToKitchen = async (paymentMode = 'PAY_AT_COUNTER') => {
+      if (isSubmittingOrder) {
+        return null; // Rapid click debounce guard
+      }
       if (typeof store.isMaintenanceMode === 'function' && store.isMaintenanceMode()) {
         alert('System Maintenance: Dine-in ordering is temporarily paused.');
         return null;
@@ -1938,89 +1965,121 @@ export function renderCustomerView(container, store, options = {}) {
         return null;
       }
 
-      const cartTotals = store.getCartTotals();
-      const activeCafeId = store.venue?.id || store.venue?.cafe_id || 'AYS-VENUE-01';
-      const tableId = tableNumber || store.cart?.table_number || 1;
-      const orderId = (typeof crypto !== 'undefined' && crypto.randomUUID)
-        ? crypto.randomUUID()
-        : `AYS-${Math.floor(100 + Math.random() * 900)}`;
+      isSubmittingOrder = true;
+      orderSubmitError = null;
 
-      const venueKeyId = store.venue?.id || store.venue?.cafe_id || activeCafeId;
-      const scopedSessionKey = `ays_table_session_${venueKeyId}_${tableId}`;
-      const scopedOrderIdKey = `ays_active_order_id_${venueKeyId}_${tableId}`;
-
-      let sessionToken = (typeof localStorage !== 'undefined')
-        ? (localStorage.getItem(scopedSessionKey) || localStorage.getItem('ays_table_session'))
-        : null;
-      if (!sessionToken && typeof crypto !== 'undefined' && crypto.randomUUID) {
-        sessionToken = crypto.randomUUID();
-      } else if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
-        sessionToken = store.generateTableSessionToken();
-      }
-      try {
-        localStorage.setItem(scopedSessionKey, sessionToken);
-        localStorage.setItem('ays_table_session', sessionToken);
-        localStorage.setItem(scopedOrderIdKey, orderId);
-        localStorage.setItem('ays_active_order_id', orderId);
-        localStorage.setItem('ays_table_session_table', String(tableId));
-      } catch {}
-
-      const isPayLater = paymentMode === 'PAY_LATER' || paymentMode === 'PAY_AT_COUNTER';
-
-      const orderPayload = {
-        id: orderId,
-        cafe_id: activeCafeId,
-        venue_id: activeCafeId,
-        table_id: tableId,
-        table_number: parseInt(tableId, 10),
-        table_label: `Table ${tableId}`,
-        status: isPayLater ? 'Preparing' : 'AWAITING_VERIFICATION',
-        payment_method: isPayLater ? 'PAY_LATER' : 'UPI',
-        payment_status: isPayLater ? 'PENDING' : 'PENDING',
-        verification_status: isPayLater ? 'APPROVED' : 'PENDING_APPROVAL',
-        is_pay_later: isPayLater,
-        session_token: sessionToken,
-        items: store.cart.items.map(ci => ({
-          id: ci.item.id,
-          dish_id: ci.item.id,
-          dish_name: ci.item.name,
-          name: ci.item.name,
-          quantity: ci.quantity,
-          price: (ci.price !== undefined && ci.price !== null && !isNaN(ci.price)) ? Number(ci.price) : Number(ci.item.price),
-          unit_price: (ci.price !== undefined && ci.price !== null && !isNaN(ci.price)) ? Number(ci.price) : Number(ci.item.price),
-          notes: ci.customization || '',
-          customization: ci.customization || ''
-        })),
-        subtotal: cartTotals.subtotal,
-        taxes: cartTotals.gst,
-        service_charge: cartTotals.serviceCharge,
-        total_amount: cartTotals.total,
-        source: 'QR_DINE_IN',
-        created_at: new Date().toISOString()
-      };
-
-      const order = store.createOrder(orderPayload);
-      if (typeof store.setTableSession === 'function') {
-        store.setTableSession(tableId, sessionToken, order.id);
-      }
-      try {
-        localStorage.setItem('ays_active_order_id', order.id);
-        if (orderPayload.items && orderPayload.items.length > 0) {
-          localStorage.setItem('ays_last_cart_items', JSON.stringify(orderPayload.items));
+      // Immediate visual feedback on buttons
+      const placeBtn = container.querySelector('#btn-place-order-table');
+      const fireBtn = container.querySelector('#btn-fire-order-kitchen');
+      [placeBtn, fireBtn].forEach(b => {
+        if (b) {
+          b.disabled = true;
+          b.classList.add('opacity-70', 'pointer-events-none');
+          b.innerHTML = '<span class="inline-block w-4 h-4 border-2 border-current border-t-transparent rounded-full animate-spin mr-1.5"></span> Placing Order...';
         }
-      } catch {}
-      store.clearCart();
-      isCartOpen = false;
-      lastPlacedOrder = order;
+      });
 
-      if (paymentMode === 'UPI') {
-        showUPIModal = true;
-      } else {
-        activeTab = 'track';
+      try {
+        const cartTotals = store.getCartTotals();
+        const activeCafeId = store.venue?.id || store.venue?.cafe_id || 'AYS-VENUE-01';
+        const tableId = tableNumber || store.cart?.table_number || 1;
+        const orderId = (typeof crypto !== 'undefined' && crypto.randomUUID)
+          ? crypto.randomUUID()
+          : `AYS-${Math.floor(100 + Math.random() * 900)}`;
+
+        const venueKeyId = store.venue?.id || store.venue?.cafe_id || activeCafeId;
+        const scopedSessionKey = `ays_table_session_${venueKeyId}_${tableId}`;
+        const scopedOrderIdKey = `ays_active_order_id_${venueKeyId}_${tableId}`;
+
+        let sessionToken = (typeof localStorage !== 'undefined')
+          ? (localStorage.getItem(scopedSessionKey) || localStorage.getItem('ays_table_session'))
+          : null;
+        if (!sessionToken && typeof crypto !== 'undefined' && crypto.randomUUID) {
+          sessionToken = crypto.randomUUID();
+        } else if (!sessionToken && typeof store.generateTableSessionToken === 'function') {
+          sessionToken = store.generateTableSessionToken();
+        }
+        try {
+          localStorage.setItem(scopedSessionKey, sessionToken);
+          localStorage.setItem('ays_table_session', sessionToken);
+          localStorage.setItem(scopedOrderIdKey, orderId);
+          localStorage.setItem('ays_active_order_id', orderId);
+          localStorage.setItem('ays_table_session_table', String(tableId));
+        } catch {}
+
+        const isPayLater = paymentMode === 'PAY_LATER' || paymentMode === 'PAY_AT_COUNTER';
+
+        const orderPayload = {
+          id: orderId,
+          cafe_id: activeCafeId,
+          venue_id: activeCafeId,
+          table_id: tableId,
+          table_number: parseInt(tableId, 10),
+          table_label: `Table ${tableId}`,
+          status: isPayLater ? 'Preparing' : 'AWAITING_VERIFICATION',
+          payment_method: isPayLater ? 'PAY_LATER' : 'UPI',
+          payment_status: isPayLater ? 'PENDING' : 'PENDING',
+          verification_status: isPayLater ? 'APPROVED' : 'PENDING_APPROVAL',
+          is_pay_later: isPayLater,
+          session_token: sessionToken,
+          items: store.cart.items.map(ci => ({
+            id: ci.item.id,
+            dish_id: ci.item.id,
+            dish_name: ci.item.name,
+            name: ci.item.name,
+            quantity: ci.quantity,
+            price: (ci.price !== undefined && ci.price !== null && !isNaN(ci.price)) ? Number(ci.price) : Number(ci.item.price),
+            unit_price: (ci.price !== undefined && ci.price !== null && !isNaN(ci.price)) ? Number(ci.price) : Number(ci.item.price),
+            notes: ci.customization || '',
+            customization: ci.customization || ''
+          })),
+          subtotal: cartTotals.subtotal,
+          taxes: cartTotals.gst,
+          service_charge: cartTotals.serviceCharge,
+          total_amount: cartTotals.total,
+          source: 'QR_DINE_IN',
+          created_at: new Date().toISOString()
+        };
+
+        // Await store.createOrder with atomic RPC confirmation
+        const order = await store.createOrder(orderPayload);
+        if (!order || order.success === false) {
+          throw new Error(order?.error || 'Database submission failed');
+        }
+
+        if (typeof store.setTableSession === 'function') {
+          store.setTableSession(tableId, sessionToken, order.id);
+        }
+        try {
+          localStorage.setItem('ays_active_order_id', order.id);
+          if (orderPayload.items && orderPayload.items.length > 0) {
+            localStorage.setItem('ays_last_cart_items', JSON.stringify(orderPayload.items));
+          }
+        } catch {}
+
+        // Only on confirmed database success: clear cart and transition view
+        store.clearCart();
+        isCartOpen = false;
+        lastPlacedOrder = order;
+        isSubmittingOrder = false;
+
+        if (paymentMode === 'UPI') {
+          showUPIModal = true;
+        } else {
+          activeTab = 'track';
+        }
+
+        render();
+        return order;
+      } catch (err) {
+        console.error('❌ Order submission failed:', err);
+        isSubmittingOrder = false;
+        orderSubmitError = err.message || 'Failed to place order. Please check your connection and try again.';
+        isCartOpen = true; // Keep cart open with error banner visible
+        // Cart is strictly preserved! Never transition to tracking view!
+        render();
+        return null;
       }
-
-      render();
-      return order;
     };
 
     container.fireOrderToKitchen = fireOrderToKitchen;

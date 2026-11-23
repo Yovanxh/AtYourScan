@@ -7,6 +7,7 @@
 import { store } from '../store.js';
 import { requestManagerOverride } from './ManagerOverrideModal.js';
 import { generateQRCodeSVG } from '../qrGenerator.js';
+import { audioAlertManager } from '../utils/audioAlerts.js';
 
 export function splitBillEvenly(totalAmount, guestCount) {
   const total = Math.round(Number(totalAmount) * 100);
@@ -76,9 +77,6 @@ export function renderFloorplanView(container, reactiveStore) {
   let latestPaidAlert = null;
 
   const onOrderPaid = (e) => {
-    try {
-      new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
-    } catch (_) {}
     const detail = e.detail || {};
     const tableNum = detail.order?.table_number || detail.order?.table_id || 'QR';
     const amt = detail.order?.bill_amount || detail.order?.total_amount || '—';
@@ -90,11 +88,10 @@ export function renderFloorplanView(container, reactiveStore) {
   };
 
   const onUtrSubmitted = (e) => {
-    try {
-      new Audio('/notification.mp3').play().catch(() => {
-        new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
-      });
-    } catch (_) {}
+    const detail = e?.detail || {};
+    if (detail.order?.id) {
+      audioAlertManager.playNewOrderAlert(detail.order.id);
+    }
     render();
   };
 
@@ -267,9 +264,11 @@ export function renderFloorplanView(container, reactiveStore) {
                     );
                     const hasActiveOrders = tableOrders.length > 0;
                     const isFoodReady = tableOrders.some(o => o.status === 'Ready');
+                    const isPreparing = tableOrders.some(o => o.status === 'Preparing' || o.status === 'in_kitchen');
+                    const isNew = tableOrders.some(o => o.status === 'New' || o.status === 'AWAITING_VERIFICATION');
                     const tabTotal = tableOrders.reduce((sum, o) => sum + (o.total_amount || 0), 0);
 
-                    // Card borders & badges
+                    // Card borders & badges seamlessly synchronized with KDS statuses
                     let borderClass = 'border-slate-100 bg-[#FDFEFE] hover:border-slate-300';
                     let statusPill = 'bg-[#F0F5FA] text-[#646982]';
                     let statusText = 'Vacant';
@@ -278,6 +277,14 @@ export function renderFloorplanView(container, reactiveStore) {
                       borderClass = 'border-[#059C6A] ring-2 ring-emerald-100 bg-[#EBF7F2]/40';
                       statusPill = 'bg-[#EBF7F2] text-[#059C6A] font-bold';
                       statusText = 'Food Ready';
+                    } else if (isPreparing) {
+                      borderClass = 'border-amber-400 ring-2 ring-amber-100 bg-amber-50/30';
+                      statusPill = 'bg-amber-100 text-amber-800 font-bold';
+                      statusText = 'Preparing';
+                    } else if (isNew) {
+                      borderClass = 'border-[#FF7622] ring-2 ring-orange-100 bg-[#FFEBE4]/30';
+                      statusPill = 'bg-[#FFEBE4] text-[#FF7622] font-bold';
+                      statusText = 'New Order';
                     } else if (hasActiveOrders || (t.status && t.status !== 'Vacant' && t.status !== 'Available')) {
                       borderClass = 'border-[#FF7622] ring-2 ring-orange-100 bg-[#FFEBE4]/30';
                       statusPill = 'bg-[#FFEBE4] text-[#FF7622] font-bold';
@@ -942,15 +949,8 @@ export function initAdminRealtimeListener() {
 export function triggerPaymentAlertBanner(order) {
   if (!order) return;
 
-  // Plays the notification audio
-  try {
-    const audio = new Audio('/notification.mp3');
-    audio.play().catch(() => {
-      try {
-        new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
-      } catch (_) {}
-    });
-  } catch (_) {}
+  // Plays the notification audio via centralized AudioAlertManager
+  audioAlertManager.playNewOrderAlert(order.id);
   if (typeof window !== 'undefined' && window.store?.playSound) {
     window.store.playSound('bell');
   }

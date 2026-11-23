@@ -12,10 +12,62 @@ import { renderOfferBannerModal } from './OfferBannerModal.js';
  * Calculate authoritative financial KPIs from real orders as they come in.
  */
 export function calculateSalesKPIs(orders = [], menuItems = []) {
-  // Count all valid incoming, active, and completed orders (excluding Cancelled/Voided)
-  const validOrders = orders.filter(o => o.status !== 'Cancelled' && o.status !== 'Voided');
-  const grossRevenue = validOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
-  const orderCount = validOrders.length;
+  // 1. Separate Food Preparation Status and Payment Status
+  const ordersByPrepStatus = {
+    New: 0,
+    Preparing: 0,
+    Ready: 0,
+    Completed: 0,
+    Cancelled: 0
+  };
+
+  const ordersByPaymentStatus = {
+    PENDING: 0,
+    PAID: 0,
+    REFUNDED: 0,
+    UTR_SUBMITTED: 0,
+    FAILED: 0
+  };
+
+  orders.forEach(o => {
+    // Tally preparation status
+    const prepSt = o.status || 'New';
+    if (ordersByPrepStatus[prepSt] !== undefined) {
+      ordersByPrepStatus[prepSt]++;
+    } else {
+      ordersByPrepStatus[prepSt] = 1;
+    }
+
+    // Tally payment status
+    const paySt = o.payment_status || (o.is_pay_later ? 'PENDING' : 'PENDING');
+    if (ordersByPaymentStatus[paySt] !== undefined) {
+      ordersByPaymentStatus[paySt]++;
+    } else {
+      ordersByPaymentStatus[paySt] = 1;
+    }
+  });
+
+  // 2. Isolate collected cash/UPI revenue from outstanding Pay Later tabs
+  const isPaidOrSettled = (o) => {
+    if (o.status === 'Cancelled' || o.status === 'Voided') return false;
+    if (o.payment_status === 'PAID') return true;
+    if (o.status === 'Completed' && o.payment_status !== 'PENDING') return true;
+    return false;
+  };
+
+  const isOutstandingTab = (o) => {
+    if (o.status === 'Cancelled' || o.status === 'Voided') return false;
+    return (o.is_pay_later || o.payment_method === 'PAY_LATER' || o.payment_status === 'PENDING') &&
+      o.payment_status !== 'PAID' && o.status !== 'Completed';
+  };
+
+  const collectedOrders = orders.filter(isPaidOrSettled);
+  const outstandingTabOrders = orders.filter(isOutstandingTab);
+
+  const grossRevenue = collectedOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+  const collectedRevenue = grossRevenue;
+  const outstandingTabsRevenue = outstandingTabOrders.reduce((sum, o) => sum + (Number(o.total_amount) || 0), 0);
+  const orderCount = collectedOrders.length;
   const aov = orderCount > 0 ? Math.round((grossRevenue / orderCount) * 100) / 100 : 0;
 
   let totalCOGS = 0;
@@ -28,7 +80,7 @@ export function calculateSalesKPIs(orders = [], menuItems = []) {
     'Artisanal Desserts': 0
   };
 
-  validOrders.forEach(order => {
+  collectedOrders.forEach(order => {
     (order.items || []).forEach(item => {
       const catalogItem = menuItems.find(m => m.id === item.id || m.name === item.name);
       const unitCost = catalogItem?.unit_cost || (item.price ? Math.round(item.price * 0.36) : 0);
@@ -55,13 +107,17 @@ export function calculateSalesKPIs(orders = [], menuItems = []) {
 
   return {
     grossRevenue,
+    collectedRevenue,
+    outstandingTabsRevenue,
     orderCount,
     aov,
     totalCOGS,
     grossProfit,
     profitMarginPercent,
     categoryRevenue,
-    categorySharePercent
+    categorySharePercent,
+    ordersByPrepStatus,
+    ordersByPaymentStatus
   };
 }
 
@@ -472,36 +528,50 @@ export function renderSalesAnalyticsView(container, reactiveStore) {
           </div>
         </div>
 
-        <!-- 4 Primary KPI Cards (matching Seller Dashboard Home.png) -->
-        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <!-- Gross Revenue -->
+        <!-- Primary KPI Cards (Collected Revenue, Open Tabs, Orders, AOV, Margin) -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <!-- Collected Revenue -->
           <div class="bg-white border border-slate-100 rounded-[28px] p-5 shadow-sm relative overflow-hidden group hover:border-[#FF7622]/40 transition-all">
             <div class="flex items-center justify-between">
-              <span class="text-xs font-bold uppercase tracking-wider text-[#A0A5BA]">Total Revenue</span>
-              <div class="w-8 h-8 rounded-full bg-[#FFEBE4] text-[#FF7622] flex items-center justify-center text-sm font-black">
+              <span class="text-xs font-bold uppercase tracking-wider text-[#A0A5BA]">Collected Revenue</span>
+              <div class="w-8 h-8 rounded-full bg-[#EBF7F2] text-[#059C6A] flex items-center justify-center text-sm font-black">
                 ₹
               </div>
             </div>
             <div class="mt-3 flex items-baseline gap-2">
-              <span class="text-3xl font-black text-[#181C2E] tracking-tight">₹${kpis.grossRevenue.toLocaleString('en-IN')}</span>
+              <span class="text-2xl font-black text-[#181C2E] tracking-tight">₹${kpis.grossRevenue.toLocaleString('en-IN')}</span>
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
                 growth.isPositive ? 'bg-[#EBF7F2] text-[#059C6A]' : 'bg-[#FFEBE4] text-[#E02D3C]'
               }">${growth.growthLabel}</span>
             </div>
-            <p class="text-xs text-[#646982] mt-1.5">From ${kpis.orderCount} completed dining tabs</p>
+            <p class="text-xs text-[#646982] mt-1.5">From ${kpis.orderCount} paid dining tabs</p>
+          </div>
+
+          <!-- Outstanding Pay Later Tabs -->
+          <div class="bg-white border border-slate-100 rounded-[28px] p-5 shadow-sm relative overflow-hidden group hover:border-amber-400 transition-all">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-bold uppercase tracking-wider text-amber-600">Open Tabs (Unpaid)</span>
+              <div class="w-8 h-8 rounded-full bg-amber-50 text-amber-700 flex items-center justify-center text-sm font-black">
+                ⏳
+              </div>
+            </div>
+            <div class="mt-3 flex items-baseline gap-2">
+              <span class="text-2xl font-black text-amber-900 tracking-tight">₹${(kpis.outstandingTabsRevenue || 0).toLocaleString('en-IN')}</span>
+            </div>
+            <p class="text-xs text-[#646982] mt-1.5">${kpis.ordersByPaymentStatus.PENDING || 0} active unpaid orders</p>
           </div>
 
           <!-- Total Orders -->
           <div class="bg-white border border-slate-100 rounded-[28px] p-5 shadow-sm relative overflow-hidden group hover:border-[#FF7622]/40 transition-all">
             <div class="flex items-center justify-between">
               <span class="text-xs font-bold uppercase tracking-wider text-[#A0A5BA]">Running Orders</span>
-              <div class="w-8 h-8 rounded-full bg-[#EBF7F2] text-[#059C6A] flex items-center justify-center text-sm font-black">
+              <div class="w-8 h-8 rounded-full bg-[#FFEBE4] text-[#FF7622] flex items-center justify-center text-sm font-black">
                 ⚡
               </div>
             </div>
             <div class="mt-3 flex items-baseline gap-2">
-              <span class="text-3xl font-black text-[#181C2E] tracking-tight">${kpis.orderCount}</span>
-              <span class="text-xs font-bold text-[#646982]">tickets</span>
+              <span class="text-2xl font-black text-[#181C2E] tracking-tight">${kpis.orderCount}</span>
+              <span class="text-xs font-bold text-[#646982]">settled</span>
             </div>
             <p class="text-xs text-[#646982] mt-1.5">${
               turnaround.avgTurnaround ? `Avg Turnaround: ${turnaround.avgTurnaround} mins` : 'Avg Turnaround: 0 mins'
@@ -517,7 +587,7 @@ export function renderSalesAnalyticsView(container, reactiveStore) {
               </div>
             </div>
             <div class="mt-3 flex items-baseline gap-2">
-              <span class="text-3xl font-black text-[#181C2E] tracking-tight">₹${kpis.aov.toLocaleString('en-IN')}</span>
+              <span class="text-2xl font-black text-[#181C2E] tracking-tight">₹${kpis.aov.toLocaleString('en-IN')}</span>
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${
                 kpis.aov >= dynamicAovBenchmark ? 'bg-[#EBF7F2] text-[#059C6A]' : 'bg-[#FFF1E8] text-[#FF7622]'
               }">Target: ₹${dynamicAovBenchmark}</span>
@@ -534,10 +604,34 @@ export function renderSalesAnalyticsView(container, reactiveStore) {
               </div>
             </div>
             <div class="mt-3 flex items-baseline gap-2">
-              <span class="text-3xl font-black text-[#181C2E] tracking-tight">${kpis.profitMarginPercent}%</span>
+              <span class="text-2xl font-black text-[#181C2E] tracking-tight">${kpis.profitMarginPercent}%</span>
               <span class="px-2 py-0.5 rounded-full text-[10px] font-bold ${marginStatusBg}">${marginStatusLabel}</span>
             </div>
             <p class="text-xs text-[#646982] mt-1.5">Total COGS: ₹${kpis.totalCOGS.toLocaleString('en-IN')}</p>
+          </div>
+        </div>
+
+        <!-- Status Separation Bar: Kitchen Preparation vs Payment Settlement -->
+        <div class="bg-white border border-slate-100 rounded-[24px] p-4 shadow-sm flex flex-wrap items-center justify-between gap-4">
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="text-xs font-bold uppercase tracking-wider text-[#646982]">🍳 Kitchen Prep Status:</span>
+            <div class="flex items-center gap-1.5 text-xs font-bold">
+              <span class="px-2.5 py-1 rounded-xl bg-orange-50 text-orange-700 border border-orange-200">New: ${kpis.ordersByPrepStatus.New || 0}</span>
+              <span class="px-2.5 py-1 rounded-xl bg-amber-50 text-amber-700 border border-amber-200">Preparing: ${kpis.ordersByPrepStatus.Preparing || 0}</span>
+              <span class="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">Ready: ${kpis.ordersByPrepStatus.Ready || 0}</span>
+              <span class="px-2.5 py-1 rounded-xl bg-blue-50 text-blue-700 border border-blue-200">Completed: ${kpis.ordersByPrepStatus.Completed || 0}</span>
+              ${kpis.ordersByPrepStatus.Cancelled ? `<span class="px-2.5 py-1 rounded-xl bg-rose-50 text-rose-700 border border-rose-200">Cancelled: ${kpis.ordersByPrepStatus.Cancelled}</span>` : ''}
+            </div>
+          </div>
+
+          <div class="flex flex-wrap items-center gap-3">
+            <span class="text-xs font-bold uppercase tracking-wider text-[#646982]">💳 Payment Status:</span>
+            <div class="flex items-center gap-1.5 text-xs font-bold">
+              <span class="px-2.5 py-1 rounded-xl bg-emerald-50 text-emerald-700 border border-emerald-200">PAID: ${kpis.ordersByPaymentStatus.PAID || 0}</span>
+              <span class="px-2.5 py-1 rounded-xl bg-amber-50 text-amber-800 border border-amber-200">PENDING TAB: ${kpis.ordersByPaymentStatus.PENDING || 0}</span>
+              ${kpis.ordersByPaymentStatus.UTR_SUBMITTED ? `<span class="px-2.5 py-1 rounded-xl bg-indigo-50 text-indigo-700 border border-indigo-200">UTR VERIFY: ${kpis.ordersByPaymentStatus.UTR_SUBMITTED}</span>` : ''}
+              ${kpis.ordersByPaymentStatus.REFUNDED ? `<span class="px-2.5 py-1 rounded-xl bg-purple-50 text-purple-700 border border-purple-200">REFUNDED: ${kpis.ordersByPaymentStatus.REFUNDED}</span>` : ''}
+            </div>
           </div>
         </div>
 

@@ -30,6 +30,7 @@ import {
   verifyPasswordSync
 } from './auth.js';
 import { parseMenuPrompt } from './utils/menuTextParser.js';
+import { audioAlertManager } from './utils/audioAlerts.js';
 const isTestEnv = Boolean(
   (typeof globalThis !== 'undefined' && globalThis.IS_TEST_ENV) || 
   (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test')
@@ -1114,7 +1115,7 @@ class ReactiveStore {
     return this.createOrder(orderData);
   }
 
-  createOrder({
+  async createOrder({
     id = null,
     order_id = null,
     cafe_id = null,
@@ -1139,14 +1140,16 @@ class ReactiveStore {
     is_locked = false,
     created_at = null
   }) {
-    if (!items.length) return null;
+    if (!items || !items.length) {
+      throw new Error('Order must contain at least one item');
+    }
 
     const resolvedTableNum = parseInt(table_number || table_id || 4, 10);
     const resolvedTableId = table_id || resolvedTableNum;
     const resolvedTableLabel = table_label || `Table ${resolvedTableNum}`;
     const resolvedCafeId = cafe_id || venue_id || this.venue?.id || 'AYS-VENUE-01';
 
-    const calcSubtotal = items.reduce((sum, it) => sum + (Number(it.price || 0) * Number(it.quantity || 1)), 0);
+    const calcSubtotal = items.reduce((sum, it) => sum + (Number(it.price || it.unit_price || 0) * Number(it.quantity || 1)), 0);
     const gstRate = this.venue?.gst_rate || 0.05;
     const calcGst = Math.round(calcSubtotal * gstRate);
     const resolvedSubtotal = (subtotal !== null && subtotal !== undefined && !isNaN(subtotal)) ? Number(subtotal) : calcSubtotal;
@@ -1162,75 +1165,92 @@ class ReactiveStore {
           ? crypto.randomUUID() 
           : (id || order_id || `AYS-${Math.floor(100 + Math.random() * 900)}`));
 
-    const newOrder = {
+    const dbStatus = (status === 'in_kitchen' || status === 'CONFIRMED') 
+      ? 'Preparing' 
+      : (status === 'AWAITING_VERIFICATION' ? 'New' : (status || 'New'));
+
+    const normalizedItems = items.map(it => {
+      const dishId = it.menu_item_id || it.dish_id || it.id;
+      const dishName = it.item_name || it.dish_name || it.name || 'Dish';
+      const unitPrice = (it.unit_price !== undefined && it.unit_price !== null && !isNaN(it.unit_price))
+        ? Number(it.unit_price)
+        : (it.price !== undefined && it.price !== null && !isNaN(it.price) ? Number(it.price) : 0);
+      const itemNotes = it.notes || it.cookingNotes || it.customization || '';
+      return {
+        id: dishId,
+        dish_id: dishId,
+        menu_item_id: dishId,
+        name: dishName,
+        dish_name: dishName,
+        item_name: dishName,
+        quantity: Number(it.quantity || 1),
+        price: unitPrice,
+        unit_price: unitPrice,
+        notes: itemNotes,
+        customization: itemNotes
+      };
+    });
+
+    const rpcOrderPayload = {
       id: orderIdToUse,
-      cafe_id: resolvedCafeId,
       venue_id: resolvedCafeId,
-      table_id: resolvedTableId,
+      cafe_id: resolvedCafeId,
       table_number: resolvedTableNum,
-      table_label: resolvedTableLabel,
       source: source || 'QR_DINE_IN',
-      status: status || 'New',
+      status: dbStatus,
+      total_amount: resolvedTotal,
       subtotal: resolvedSubtotal,
       taxes: resolvedTaxes,
-      total_amount: resolvedTotal,
-      bill_amount: resolvedTotal,
       payment_status: payment_status || 'PENDING',
       payment_method: payment_method || (is_pay_later ? 'PAY_LATER' : 'UPI'),
       verification_status: verification_status || (is_pay_later ? 'APPROVED' : 'PENDING_APPROVAL'),
       is_pay_later: Boolean(is_pay_later),
       session_token: session_token || null,
-      is_locked: Boolean(is_locked),
       utr_number: utr_number || null,
-      notes: notes || '',
       customer_name: customer_name || `Guest at ${resolvedTableLabel}`,
-      items: items.map(it => ({
-        id: it.id || it.dish_id,
-        dish_id: it.dish_id || it.id,
-        name: it.name || it.dish_name || 'Dish',
-        dish_name: it.dish_name || it.name || 'Dish',
-        quantity: Number(it.quantity || 1),
-        price: Number(it.price || 0),
-        notes: it.notes || it.cookingNotes || it.customization || '',
-        customization: it.customization || it.notes || ''
-      })),
+      notes: notes || '',
+      items: normalizedItems,
       created_at: created_at || new Date().toISOString()
     };
 
-    this.orders.unshift(newOrder);
-    this.save('ays_orders', this.orders);
+    let persistedOrder = null;
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
 
-    if (supabase && typeof supabase.from === 'function' && !globalThis.IS_TEST_ENV && (typeof process === 'undefined' || process.env?.NODE_ENV !== 'test')) {
-      try {
-        const dbStatus = (newOrder.status === 'in_kitchen' || newOrder.status === 'CONFIRMED') 
-          ? 'Preparing' 
-          : (newOrder.status === 'AWAITING_VERIFICATION' ? 'New' : (newOrder.status || 'New'));
+    // Connect to PostgreSQL RPC create_order_atomic(p_order JSONB)
+    const isMockRpc = Boolean(globalThis.MOCK_SUPABASE_RPC);
+    const isTestRuntime = Boolean(globalThis.IS_TEST_ENV || (typeof process !== 'undefined' && process.env?.NODE_ENV === 'test'));
 
-        const orderInsertPayload = {
-          venue_id: resolvedCafeId,
-          cafe_id: resolvedCafeId,
-          table_number: resolvedTableNum,
-          source: newOrder.source,
-          status: dbStatus,
-          total_amount: newOrder.total_amount,
-          session_token: newOrder.session_token || null,
-          verification_status: newOrder.verification_status || 'PENDING_APPROVAL',
-          payment_status: newOrder.payment_status || 'PENDING',
-          payment_method: newOrder.payment_method || (newOrder.is_pay_later ? 'PAY_LATER' : 'UPI'),
-          utr_number: newOrder.utr_number || null,
-          is_pay_later: Boolean(newOrder.is_pay_later),
-          items: newOrder.items
-        };
-        if (isProvidedUuid) {
-          orderInsertPayload.id = orderIdToUse;
-        }
-
-        const q = supabase.from('orders').insert([orderInsertPayload]);
-        if (q && typeof q.then === 'function') {
-          q.then(() => {}, () => {});
-        }
-      } catch {}
+    if (client && typeof client.rpc === 'function' && (!isTestRuntime || isMockRpc)) {
+      const { data, error } = await client.rpc('create_order_atomic', { p_order: rpcOrderPayload });
+      if (error) {
+        console.error('❌ Supabase RPC create_order_atomic failed:', error);
+        throw new Error(error.message || 'Database error: Unable to create atomic order');
+      }
+      if (data) {
+        persistedOrder = typeof data === 'string' ? JSON.parse(data) : data;
+      }
     }
+
+    const newOrder = {
+      ...rpcOrderPayload,
+      ...(persistedOrder || {}),
+      items: (persistedOrder?.items && Array.isArray(persistedOrder.items) && persistedOrder.items.length > 0)
+        ? persistedOrder.items
+        : normalizedItems,
+      bill_amount: resolvedTotal,
+      table_id: resolvedTableId,
+      table_label: resolvedTableLabel,
+      is_locked: Boolean(is_locked)
+    };
+
+    // Store locally and persist (single atomic record)
+    const existingIndex = this.orders.findIndex(o => o.id === newOrder.id);
+    if (existingIndex >= 0) {
+      this.orders[existingIndex] = newOrder;
+    } else {
+      this.orders.unshift(newOrder);
+    }
+    this.save('ays_orders', this.orders);
 
     // Stock deduction logic: decrement stock_quantity for each item
     let menuUpdated = false;
@@ -1252,7 +1272,9 @@ class ReactiveStore {
     }
 
     // Bill of Materials (BOM) & Raw Ingredient Auto-Depletion
-    this.depleteInventoryForOrder(newOrder);
+    if (typeof this.depleteInventoryForOrder === 'function') {
+      this.depleteInventoryForOrder(newOrder);
+    }
 
     // Update table status to Active Ordering
     const tbl = this.tables.find(t => t.table_number === resolvedTableNum);
@@ -1269,9 +1291,9 @@ class ReactiveStore {
 
     const isInstantUnverified = (newOrder.payment_method === 'UPI' || !newOrder.is_pay_later) && newOrder.verification_status !== 'APPROVED';
 
-    // Play kitchen crystal chime only for released tickets (Pay Later or Pre-approved)
+    // Play kitchen crystal chime exclusively for released tickets via AudioAlertManager
     if (!isInstantUnverified) {
-      this.playSound('order_new');
+      audioAlertManager.playNewOrderAlert(newOrder.id);
     }
 
     // Realtime Broadcast across active browser channel (strictly scoped to current venue)
@@ -1300,39 +1322,6 @@ class ReactiveStore {
         } catch (e) {
           console.warn('Supabase broadcast error:', e);
         }
-      }
-    }
-
-    // Asynchronous Supabase Persistence for both orders and order_items
-    if (supabase && typeof supabase.from === 'function') {
-      try {
-        const orderInsertPayload = {
-          venue_id: this.venue?.id || 'cafe-first-way-cafe-hotc',
-          table_number: newOrder.table_number,
-          source: newOrder.source,
-          status: newOrder.status === 'in_kitchen' ? 'Preparing' : (newOrder.status || 'New'),
-          total_amount: newOrder.total_amount
-        };
-        if (typeof newOrder.id === 'string' && newOrder.id.length === 36 && newOrder.id.includes('-')) {
-          orderInsertPayload.id = newOrder.id;
-        }
-
-        supabase.from('orders').insert(orderInsertPayload).select().then(({ data, error }) => {
-          if (!error && data && data[0]) {
-            const dbOrderId = data[0].id;
-            const itemsRows = newOrder.items.map(it => ({
-              order_id: dbOrderId,
-              menu_item_id: it.dish_id || it.id,
-              quantity: it.quantity || 1
-            })).filter(r => r.menu_item_id);
-
-            if (itemsRows.length > 0) {
-              supabase.from('order_items').insert(itemsRows).catch(() => {});
-            }
-          }
-        }).catch(() => {});
-      } catch (err) {
-        console.warn('Supabase order/order_items insert bypass:', err);
       }
     }
 
@@ -1425,7 +1414,7 @@ class ReactiveStore {
     }
 
     const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
-    if (client && typeof client.from === 'function') {
+    if (client && typeof client.from === 'function' && !isTestEnv) {
       try {
         let res = await client.from('orders').update({
           status: normalizedStatus,
@@ -2729,7 +2718,7 @@ class ReactiveStore {
       }
     }
     const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
-    if (client && typeof client.from === 'function') {
+    if (client && typeof client.from === 'function' && !isTestEnv) {
       try {
         const p = client.from('orders').update({
           is_locked: true,
@@ -2895,7 +2884,7 @@ class ReactiveStore {
     }
 
     const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
-    if (client && typeof client.from === 'function') {
+    if (client && typeof client.from === 'function' && !isTestEnv) {
       try {
         const { data: dbDup } = await client
           .from('orders')
@@ -3374,11 +3363,7 @@ class ReactiveStore {
           this.save('ays_orders', this.orders);
 
           if (isPendingUtr) {
-            try {
-              new Audio('/notification.mp3').play().catch(() => {
-                new Audio('https://assets.mixkit.co/active_storage/sfx/2869/2869-preview.mp3').play().catch(() => {});
-              });
-            } catch (_) {}
+            audioAlertManager.playNewOrderAlert(normalized.id);
             this.playSound('bell');
             this.notifyListeners?.({ type: 'ORDER_UTR_SUBMITTED', order: normalized, utrNumber: normalized.utr_number });
             this.notify?.({ type: 'ORDER_UTR_SUBMITTED', order: normalized, utrNumber: normalized.utr_number });
@@ -3386,7 +3371,11 @@ class ReactiveStore {
               window.dispatchEvent(new CustomEvent('ORDER_UTR_SUBMITTED', { detail: { order: normalized, utrNumber: normalized.utr_number } }));
             }
           } else if (updated.payment_status === 'PAID' || updated.verification_status === 'APPROVED') {
-            this.playSound('order_new');
+            // Play sound EXCLUSIVELY for new incoming orders, or if transitioning from unapproved to approved
+            const isNewlyApproved = Boolean(existing && existing.verification_status !== 'APPROVED' && updated.verification_status === 'APPROVED');
+            if (payload.eventType === 'INSERT' || isNewlyApproved) {
+              audioAlertManager.playNewOrderAlert(normalized.id);
+            }
             this.notifyListeners?.({ type: 'ORDER_APPROVED', order: normalized });
             this.notifyListeners?.({ type: 'ORDER_PAID', order: normalized });
             this.notify?.({ type: 'ORDER_APPROVED', order: normalized });
