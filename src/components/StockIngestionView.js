@@ -342,9 +342,12 @@ export function renderStockIngestionView(container, reactiveStore) {
                 Client-Side AI Engine
               </span>
             </h3>
-            ${uploadedImageSrc ? `
-              <button id="btn-remove-image" class="text-xs font-bold text-[#FF334B] hover:underline cursor-pointer">Remove Image</button>
-            ` : ''}
+            <div class="flex items-center gap-3">
+              <button type="button" id="btn-load-sample-top" class="text-xs font-bold text-[#FF7622] hover:underline cursor-pointer">⚡ Try Sample Invoice</button>
+              ${uploadedImageSrc ? `
+                <button id="btn-remove-image" class="text-xs font-bold text-[#FF334B] hover:underline cursor-pointer">Remove Image</button>
+              ` : ''}
+            </div>
           </div>
 
           ${!uploadedImageSrc ? `
@@ -367,6 +370,9 @@ export function renderStockIngestionView(container, reactiveStore) {
                 </button>
                 <button type="button" id="btn-camera-capture" class="px-4 py-2 rounded-2xl bg-[#F0F5FA] hover:bg-[#E4ECF4] text-xs text-[#181C2E] font-bold transition-all cursor-pointer">
                   📷 Snap Photo
+                </button>
+                <button type="button" id="btn-load-sample-invoice" class="px-4 py-2 rounded-2xl bg-[#FFEBE4] hover:bg-[#FFD7CB] text-xs text-[#FF7622] font-bold transition-all cursor-pointer">
+                  ⚡ Load Sample Invoice
                 </button>
               </div>
             </div>
@@ -888,6 +894,19 @@ export function renderStockIngestionView(container, reactiveStore) {
         render();
       });
     }
+
+    // Load Sample Invoice (1-Click)
+    const handleLoadSample = () => {
+      uploadedImageSrc = '/sample_invoice.png';
+      uploadedFileName = 'sample_invoice.png';
+      preprocessedImageSrc = null;
+      parsedItems = [];
+      ocrRawText = '';
+      scanError = null;
+      render();
+    };
+    container.querySelector('#btn-load-sample-invoice')?.addEventListener('click', handleLoadSample);
+    container.querySelector('#btn-load-sample-top')?.addEventListener('click', handleLoadSample);
 
     // Remove Image
     const removeImgBtn = container.querySelector('#btn-remove-image');
