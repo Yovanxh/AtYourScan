@@ -51,6 +51,7 @@ import { renderKDSView } from './components/KDSView.js';
 import { renderPOSView } from './components/POSView.js';
 import { renderMenuView } from './components/MenuView.js';
 import { renderQRStudioView } from './components/QRStudioView.js';
+import { renderLocationModal } from './components/LocationModal.js';
 import { renderOnboardingModal } from './components/OnboardingModal.js';
 import { renderTerminalPairingModal } from './components/TerminalPairingModal.js';
 import { renderPINKeypad, openPINKeypad, renderLockScreenOverlay, getRoleStyle } from './components/PINKeypad.js';
@@ -888,10 +889,17 @@ export function renderNavRail() {
     </div>
   `;
 
-  // Bind Brand click to primary analytics view
+  // Bind Brand / Location click to Location & Branding Modal
   const brandLogo = navContainer.querySelector?.('#nav-brand-logo');
   if (brandLogo) {
-    brandLogo.addEventListener('click', () => switchView('analytics'));
+    brandLogo.addEventListener('click', () => {
+      renderLocationModal(getModalContainer(), store, {
+        onClose: () => {
+          closeModals();
+          renderNavRail();
+        }
+      });
+    });
   }
 
   // Bind terminal pairing pill click

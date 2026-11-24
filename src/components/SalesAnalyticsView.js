@@ -484,6 +484,12 @@ export function renderSalesAnalyticsView(container, reactiveStore) {
                 </span>
               </div>
               <h1 class="text-xl font-black text-[#181C2E]">Sales Analytics & Revenue Velocity</h1>
+              <p class="text-xs font-semibold text-[#646982] flex items-center gap-1.5 mt-0.5">
+                <span>☕ Café:</span>
+                <span class="text-[#181C2E] font-bold" id="analytics-venue-name">${store?.venue?.name || 'Your Registered Café'}</span>
+                <span class="text-zinc-300">•</span>
+                <span class="text-[11px] text-zinc-500 font-mono">${store?.venue?.id || 'cafe-first-way-cafe-hotc'}</span>
+              </p>
             </div>
           </div>
 

@@ -890,14 +890,15 @@ export class ReactiveStore {
           this.currentStaff = { ...this.currentUser, pin: prof?.staff_pin || '1234' };
           this.save('ays_current_user', this.currentUser);
           this.save('ays_current_staff', this.currentStaff);
-          if (this.currentUser.cafe_id) {
-            this.activateCafeEnvironment(this.currentUser.cafe_id, this.currentUser);
-          }
         }
       }
 
       // 2. Sync cafes and profiles directly from Supabase Cloud
       await this.fetchCafesFromSupabase();
+
+      if (this.currentUser && this.currentUser.cafe_id) {
+        this.activateCafeEnvironment(this.currentUser.cafe_id, this.currentUser);
+      }
 
       // 3. Sync dining tables from Supabase Cloud for active venue
       const currentVenueId = this.venue?.id;
@@ -1080,6 +1081,18 @@ export class ReactiveStore {
           version: 'v2.4.0'
         }));
         if (isTestEnv) this.save('ays_platform_tenants', this.tenants);
+
+        // Auto-hydrate active venue name if currently placeholder or generic
+        if (this.venue?.id && Array.isArray(this.cafes)) {
+          const matched = this.cafes.find(c => c.id === this.venue.id || c.cafe_id === this.venue.id || c.slug === this.venue.id);
+          if (matched && matched.name && (this.venue.name === 'Registered Cafe' || !this.venue.name || this.venue.name === 'AtYourScan')) {
+            this.venue.name = matched.name;
+            if (matched.slug) this.venue.slug = matched.slug;
+            if (matched.upi_id) this.venue.upi_id = matched.upi_id;
+            this.save('ays_venue', this.venue);
+            this.notify({ type: 'VENUE_UPDATED', venue: this.venue });
+          }
+        }
       }
       return this.tenants || [];
     } catch (e) {
@@ -2088,14 +2101,23 @@ export class ReactiveStore {
     const targetVenue = venueId || this.venue?.id || 'cafe-first-way-cafe-hotc';
 
     try {
-      // Hydrate official venue upi_id
+      // Hydrate official venue upi_id & real commercial name
       try {
         const { data: vRow } = await client.from('venues').select('*').eq('id', targetVenue).maybeSingle();
-        if (vRow && vRow.upi_id) {
+        const { data: cRow } = !vRow ? await client.from('cafes').select('*').eq('id', targetVenue).maybeSingle() : { data: null };
+        const foundVenue = vRow || cRow;
+        if (foundVenue) {
+          const resolvedName = foundVenue.name || foundVenue.outlet_name;
+          const resolvedUpi = foundVenue.upi_id || foundVenue.vpa_address;
           if (!this.venue) {
-            this.venue = { id: targetVenue, name: vRow.name || 'First Way Cafe', upi_id: vRow.upi_id };
+            this.venue = { id: targetVenue, name: resolvedName || 'First Way Cafe', upi_id: resolvedUpi || 'vanshwaghre-1@okicici' };
           } else {
-            this.venue.upi_id = vRow.upi_id;
+            if (resolvedName && (this.venue.name === 'Registered Cafe' || !this.venue.name || this.venue.name === 'AtYourScan')) {
+              this.venue.name = resolvedName;
+            }
+            if (resolvedUpi) {
+              this.venue.upi_id = resolvedUpi;
+            }
           }
           this.save('ays_venue', this.venue);
         }
@@ -2242,6 +2264,42 @@ export class ReactiveStore {
 
   async fetchDishes(venueId) {
     return this.loadDishes(venueId);
+  }
+
+  async updateCafeName(newName) {
+    const clean = (newName || '').trim();
+    if (!clean) return { success: false, error: 'Café commercial name cannot be empty' };
+
+    if (!this.venue) this.venue = { ...INITIAL_VENUE };
+    this.venue.name = clean;
+    this.save('ays_venue', this.venue);
+
+    const cafeId = this.venue.id || this.venue.cafe_id;
+    if (cafeId && Array.isArray(this.cafes)) {
+      const c = this.cafes.find(item => item.id === cafeId || item.cafe_id === cafeId || item.slug === cafeId);
+      if (c) c.name = clean;
+      this.save('ays_cafes', this.cafes);
+    }
+    if (cafeId && Array.isArray(this.tenants)) {
+      const t = this.tenants.find(item => item.id === cafeId || item.cafe_id === cafeId || item.slug === cafeId);
+      if (t) t.name = clean;
+      this.save('ays_tenants', this.tenants);
+    }
+
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    if (client && typeof client.from === 'function' && cafeId) {
+      try {
+        await Promise.all([
+          client.from('cafes').update({ name: clean }).or(`id.eq.${cafeId},slug.eq.${cafeId}`),
+          client.from('venues').update({ name: clean }).eq('id', cafeId)
+        ]);
+      } catch (err) {
+        console.warn('[Store] updateCafeName cloud sync warning:', err);
+      }
+    }
+
+    this.notify({ type: 'VENUE_UPDATED', venue: this.venue });
+    return { success: true, name: clean };
   }
 
   createDish(dishData) {
@@ -6465,7 +6523,8 @@ export class ReactiveStore {
   activateCafeEnvironment(cafeIdOrCafe, user = null) {
     if (!cafeIdOrCafe) return;
 
-    const cafeId = typeof cafeIdOrCafe === 'object' ? (cafeIdOrCafe.id || cafeIdOrCafe.cafe_id) : cafeIdOrCafe;
+    const passedObj = typeof cafeIdOrCafe === 'object' ? cafeIdOrCafe : null;
+    const cafeId = passedObj ? (passedObj.id || passedObj.cafe_id) : cafeIdOrCafe;
     const isDemo = !cafeId || cafeId === INITIAL_VENUE.id || cafeId === '550e8400-e29b-41d4-a716-446655440000';
 
     if (isDemo) {
@@ -6503,12 +6562,25 @@ export class ReactiveStore {
 
     const cafes = Array.isArray(this.cafes) ? this.cafes : [];
     const tenants = Array.isArray(this.tenants) ? this.tenants : [];
-    const cafe = cafes.find(c => c.id === cafeId || c.cafe_id === cafeId || c.slug === cafeId) ||
-                 tenants.find(t => t.id === cafeId || t.cafe_id === cafeId || t.slug === cafeId);
+    const cafe = passedObj ||
+                 cafes.find(c => c.id === cafeId || c.cafe_id === cafeId || c.slug === cafeId) ||
+                 tenants.find(t => t.id === cafeId || t.cafe_id === cafeId || t.slug === cafeId) ||
+                 (this.venue?.id === cafeId && this.venue?.name && this.venue.name !== 'Registered Cafe' ? this.venue : null);
 
-    const venueName = cafe?.name || 'Registered Cafe';
-    const venueSlug = cafe?.slug || cafeId;
-    let upiId = cafe?.upi_id || 'vanshwaghre-1@okicici';
+    let venueName = cafe?.name || passedObj?.name || user?.cafe_name || user?.restaurant_name;
+    if (!venueName || venueName === 'Registered Cafe') {
+      if (this.venue?.id === cafeId && this.venue?.name && this.venue.name !== 'Registered Cafe') {
+        venueName = this.venue.name;
+      } else {
+        const prettySlug = typeof cafeId === 'string' && cafeId.startsWith('cafe-')
+          ? cafeId.replace(/^cafe-/, '').replace(/-[a-z0-9]{4,6}$/, '').replace(/-/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+          : 'First Way Cafe';
+        venueName = prettySlug || 'First Way Cafe';
+      }
+    }
+
+    const venueSlug = cafe?.slug || passedObj?.slug || user?.cafe_slug || cafeId;
+    let upiId = cafe?.upi_id || passedObj?.upi_id || cafe?.vpa_address || 'vanshwaghre-1@okicici';
     if (!upiId || upiId.includes('ptaxis') || upiId.includes('thecopperoak')) {
       upiId = 'vanshwaghre-1@okicici';
     }
@@ -6525,6 +6597,24 @@ export class ReactiveStore {
       created_at: cafe?.created_at || new Date().toISOString()
     };
     this.save('ays_venue', this.venue);
+
+    // Asynchronously resolve real commercial name from Supabase Cloud
+    const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+    if (client && typeof client.from === 'function' && cafeId) {
+      Promise.all([
+        client.from('cafes').select('*').or(`id.eq.${cafeId},slug.eq.${cafeId}`).maybeSingle(),
+        client.from('venues').select('*').eq('id', cafeId).maybeSingle()
+      ]).then(([cRes, vRes]) => {
+        const found = cRes?.data || vRes?.data;
+        if (found && found.name && found.name !== 'Registered Cafe') {
+          this.venue.name = found.name;
+          if (found.slug) this.venue.slug = found.slug;
+          if (found.vpa_address || found.upi_id) this.venue.upi_id = found.vpa_address || found.upi_id;
+          this.save('ays_venue', this.venue);
+          this.notify({ type: 'VENUE_UPDATED', venue: this.venue });
+        }
+      }).catch(() => {});
+    }
 
     // 2. Resolve Owner User (Master Admins are platform operators and NEVER cafe owners or staff)
     if (!user || isSuperAdmin(user) || user.role === 'master_admin' || user.system_role === 'master_admin' || user.role === ROLES.SUPER_ADMIN || !user.cafe_id) {
@@ -7343,15 +7433,43 @@ export class ReactiveStore {
           };
         } else if (supabaseUser) {
           const meta = supabaseUser.user_metadata || {};
+          let resolvedCafeId = meta.cafe_id;
+          let resolvedCafeSlug = meta.cafe_slug;
+          let resolvedCafeName = meta.cafe_name;
+          let resolvedName = meta.name;
+          let resolvedPin = '1234';
+
+          const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+          if (client && typeof client.from === 'function') {
+            try {
+              const [profRes, cafeRes] = await Promise.all([
+                client.from('profiles').select('*').eq('id', supabaseUser.id).maybeSingle(),
+                client.from('cafes').select('*').eq('owner_email', cleanEmail).maybeSingle()
+              ]);
+              if (profRes?.data) {
+                resolvedCafeId = profRes.data.cafe_id || resolvedCafeId;
+                resolvedName = profRes.data.full_name || resolvedName;
+                resolvedPin = profRes.data.staff_pin || resolvedPin;
+              }
+              if (cafeRes?.data) {
+                resolvedCafeId = cafeRes.data.id || resolvedCafeId;
+                resolvedCafeSlug = cafeRes.data.slug || resolvedCafeSlug;
+                resolvedCafeName = cafeRes.data.name || resolvedCafeName;
+              }
+            } catch {}
+          }
+
           user = {
             id: supabaseUser.id,
             user_id: supabaseUser.id,
-            name: meta.name || cleanEmail.split('@')[0],
+            name: resolvedName || cleanEmail.split('@')[0],
             email: cleanEmail,
             role: meta.role || 'cafe_admin',
             system_role: meta.system_role || 'cafe_admin',
-            cafe_id: meta.cafe_id,
-            cafe_slug: meta.cafe_slug,
+            cafe_id: resolvedCafeId,
+            cafe_slug: resolvedCafeSlug,
+            cafe_name: resolvedCafeName,
+            pin: resolvedPin,
             active: true
           };
         }
