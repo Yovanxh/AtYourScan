@@ -2101,7 +2101,7 @@ export class ReactiveStore {
     if (!client) return [];
 
     let targetVenue = venueId || this.venue?.id || 'cafe-first-way-cafe-hotc';
-    if (targetVenue === 'first-way-cafe' || targetVenue === 'First Way Cafe') {
+    if (targetVenue === 'first-way-cafe' || targetVenue === 'First Way Cafe' || targetVenue.includes('first-way-cafe') || targetVenue.includes('nkki')) {
       targetVenue = 'cafe-first-way-cafe-hotc';
     }
 

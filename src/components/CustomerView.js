@@ -35,13 +35,13 @@ export function renderCustomerView(container, store, options = {}) {
       const p = new URLSearchParams(window.location.search);
       let q = p.get('cafe') || p.get('cafe_id') || p.get('cafeId') || p.get('venue');
       if (q) {
-        if (q === 'first-way-cafe' || q === 'First Way Cafe') return 'cafe-first-way-cafe-hotc';
+        if (q === 'first-way-cafe' || q === 'First Way Cafe' || q.includes('first-way-cafe') || q.includes('nkki')) return 'cafe-first-way-cafe-hotc';
         return q;
       }
       const pathMatch = window.location.pathname && window.location.pathname.match(/\/v\/([^\/]+)/);
       if (pathMatch) {
         let pv = decodeURIComponent(pathMatch[1]);
-        if (pv === 'first-way-cafe' || pv === 'First Way Cafe') return 'cafe-first-way-cafe-hotc';
+        if (pv === 'first-way-cafe' || pv === 'First Way Cafe' || pv.includes('first-way-cafe') || pv.includes('nkki')) return 'cafe-first-way-cafe-hotc';
         return pv;
       }
     }
@@ -133,17 +133,21 @@ export function renderCustomerView(container, store, options = {}) {
 
     // 2. Café/Tenant Resolution (Supports slug, ID, and default First Way Cafe)
     if (urlCafe) {
-      targetTenant = allCafes.find(c => c.id === urlCafe || c.slug === urlCafe || c.cafe_id === urlCafe) ||
-        ((store.venue && (store.venue.id === urlCafe || store.venue.cafe_id === urlCafe || store.venue.slug === urlCafe || (urlCafe === 'first-way-cafe' && (store.venue.id === 'cafe-first-way-cafe-hotc' || store.venue.name === 'First Way Cafe')))) ? store.venue : null);
+      const isFirstWayCafe = urlCafe === 'first-way-cafe' || urlCafe === 'First Way Cafe' || urlCafe.includes('first-way-cafe') || urlCafe.includes('nkki');
+      const normalizedUrl = isFirstWayCafe ? 'cafe-first-way-cafe-hotc' : urlCafe;
+
+      targetTenant = allCafes.find(c => c.id === urlCafe || c.slug === urlCafe || c.cafe_id === urlCafe || (isFirstWayCafe && (c.id === 'cafe-first-way-cafe-hotc' || c.slug === 'first-way-cafe'))) ||
+        ((store.venue && (store.venue.id === urlCafe || store.venue.cafe_id === urlCafe || store.venue.slug === urlCafe || store.venue.id === normalizedUrl || (isFirstWayCafe && (store.venue.id === 'cafe-first-way-cafe-hotc' || store.venue.name === 'First Way Cafe')))) ? store.venue : null);
 
       // Cloud Hydration Fallback: If not found in local memory on client mobile, query Supabase Cloud
       if (!targetTenant && !cloudVenueNotFound && !isTestEnv && typeof window !== 'undefined') {
         const client = store.supabase || window.supabase;
         if (client && typeof client.from === 'function' && !isFetchingCloudVenue) {
           isFetchingCloudVenue = true;
+          const queryId = normalizedUrl;
           Promise.all([
-            client.from('cafes').select('*').or(`id.eq.${urlCafe},slug.eq.${urlCafe}`).maybeSingle(),
-            client.from('venues').select('*').eq('id', urlCafe).maybeSingle()
+            client.from('cafes').select('*').or(`id.eq.${queryId},slug.eq.${queryId}`).maybeSingle(),
+            client.from('venues').select('*').eq('id', queryId).maybeSingle()
           ]).then(([cRes, vRes]) => {
             isFetchingCloudVenue = false;
             const found = cRes?.data || vRes?.data;
@@ -2942,7 +2946,7 @@ export function renderCustomerView(container, store, options = {}) {
       try {
         isMenuLoading = !store.dishes || store.dishes.length === 0;
         if (isMenuLoading) render();
-        const effectiveVenue = (venueId === 'first-way-cafe' || venueId === 'First Way Cafe') 
+        const effectiveVenue = (venueId === 'first-way-cafe' || venueId === 'First Way Cafe' || (typeof venueId === 'string' && (venueId.includes('first-way-cafe') || venueId.includes('nkki')))) 
           ? 'cafe-first-way-cafe-hotc' 
           : (venueId || store.venue?.id || 'cafe-first-way-cafe-hotc');
         await store.loadDishes(effectiveVenue);
