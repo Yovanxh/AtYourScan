@@ -151,6 +151,47 @@ suite.test('OCR-07: formatProgressMessage maps stages to descriptive readable up
   assert.ok(msg2.includes('82%'));
 });
 
+// OCR-08: Multi-currency tabular invoices with $ symbols
+suite.test('OCR-08: Currency symbols ($, €, £) in tabular invoices parsed correctly', () => {
+  const invoiceSample = `
+    BEANBURST COFFEE
+    Cafe Invoice Statement
+    Invoice Number: INV-9901
+    Date: 24/11/2026
+    Description Quantity Unit Price Total
+    Coffee 100 $2.50 $250.00
+    Pastries 50 $3.00 $150.00
+    Sandwiches 30 $5.00 $150.00
+    Subtotal: $550.00
+    Tax (5%): $27.50
+    Total: $577.50
+  `;
+
+  const parsed = parseInvoiceTextLines(invoiceSample);
+  assert.equal(parsed.length, 3, 'Should extract exactly 3 line items');
+
+  const coffee = parsed.find(i => i.name === 'Coffee');
+  assert.ok(coffee, 'Should extract Coffee');
+  assert.equal(coffee.quantity, 100);
+  assert.equal(coffee.unit_cost, 2.5);
+  assert.equal(coffee.total_cost, 250);
+
+  const pastries = parsed.find(i => i.name === 'Pastries');
+  assert.ok(pastries, 'Should extract Pastries');
+  assert.equal(pastries.quantity, 50);
+  assert.equal(pastries.unit_cost, 3);
+  assert.equal(pastries.total_cost, 150);
+
+  const sandwiches = parsed.find(i => i.name === 'Sandwiches');
+  assert.ok(sandwiches, 'Should extract Sandwiches');
+  assert.equal(sandwiches.quantity, 30);
+  assert.equal(sandwiches.unit_cost, 5);
+  assert.equal(sandwiches.total_cost, 150);
+
+  assert.equal(parsed.metadata.totalAmount, 577.5);
+  assert.equal(parsed.metadata.supplierName, 'BEANBURST COFFEE');
+});
+
 // If executed directly
 if (typeof process !== 'undefined' && process.argv[1]?.endsWith('invoice_ocr_real.test.mjs')) {
   suite.run().then(res => {

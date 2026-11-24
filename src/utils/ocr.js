@@ -154,8 +154,9 @@ export function parseInvoiceTextLines(rawText) {
     return empty;
   }
 
-  // Common OCR cleanup: clean zero/O confusions in numbers, fix currency symbols
+  // Common OCR cleanup: clean zero/O confusions in numbers, fix currency symbols ($ € £ ¥ ₹ Rs INR)
   const cleanedText = rawText
+    .replace(/[$€£¥]/g, ' ')
     .replace(/[₹]/g, ' Rs ')
     .replace(/\bRs\.?\s*/gi, ' Rs ')
     .replace(/\bINR\s*/gi, ' Rs ');
@@ -206,15 +207,15 @@ export function parseInvoiceTextLines(rawText) {
       metadata.date = dateMatch[1].trim();
     }
 
-    // Grand Total detection
-    const totalMatch = line.match(/(?:grand\s*total|net\s*amount|total\s*payable|bill\s*amount|total\s*due|final\s*amount)[:=\s]*(?:rs\.?)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
-    if (totalMatch && !metadata.totalAmount) {
-      metadata.totalAmount = parseFloat(totalMatch[1].replace(/,/g, ''));
+    // Skip boilerplate headers and subtotals before matching final totals
+    if (ignorePatterns.some(p => p.test(line))) {
       continue;
     }
 
-    // Skip boilerplate headers
-    if (ignorePatterns.some(p => p.test(line))) {
+    // Grand Total detection (handles "Total: $577.50", "Grand Total: Rs 10,502.00", etc.)
+    const totalMatch = line.match(/(?:\b(?:grand\s*)?total|net\s*amount|total\s*payable|bill\s*amount|total\s*due|final\s*amount)[:=\s]*(?:rs\.?)?\s*([0-9,]+(?:\.[0-9]{1,2})?)/i);
+    if (totalMatch && !metadata.totalAmount) {
+      metadata.totalAmount = parseFloat(totalMatch[1].replace(/,/g, ''));
       continue;
     }
 
