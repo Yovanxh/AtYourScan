@@ -6,6 +6,8 @@
 import { generateQRCodeSVG } from '../qrGenerator.js';
 import { buildUPIDeepLink, generateUPIDeepLink, isMobileDevice } from '../utils/payment.js';
 
+const isTestEnv = typeof process !== 'undefined' && (process.env?.NODE_ENV === 'test' || Boolean(process.env?.VITEST));
+
 export function renderCustomerView(container, store, options = {}) {
   const optionsObj = (typeof options === 'number') ? { tableNumber: options } : (options || {});
   let activeCategory = 'All';
@@ -98,6 +100,9 @@ export function renderCustomerView(container, store, options = {}) {
     });
   }
 
+  let isFetchingCloudVenue = false;
+  let cloudVenueNotFound = false;
+
   function render() {
     let targetTenant = null;
     const cafes = Array.isArray(store.cafes) ? store.cafes : [];
@@ -119,10 +124,63 @@ export function renderCustomerView(container, store, options = {}) {
       }
     }
 
-    // 2. Café/Tenant Resolution (No fake fallbacks)
+    // 2. Café/Tenant Resolution (Supports slug, ID, and default First Way Cafe)
     if (urlCafe) {
       targetTenant = allCafes.find(c => c.id === urlCafe || c.slug === urlCafe || c.cafe_id === urlCafe) ||
-        ((store.venue && (store.venue.id === urlCafe || store.venue.cafe_id === urlCafe || store.venue.slug === urlCafe)) ? store.venue : null);
+        ((store.venue && (store.venue.id === urlCafe || store.venue.cafe_id === urlCafe || store.venue.slug === urlCafe || (urlCafe === 'first-way-cafe' && (store.venue.id === 'cafe-first-way-cafe-hotc' || store.venue.name === 'First Way Cafe')))) ? store.venue : null);
+
+      // Cloud Hydration Fallback: If not found in local memory on client mobile, query Supabase Cloud
+      if (!targetTenant && !cloudVenueNotFound && !isTestEnv && typeof window !== 'undefined') {
+        const client = store.supabase || window.supabase;
+        if (client && typeof client.from === 'function' && !isFetchingCloudVenue) {
+          isFetchingCloudVenue = true;
+          Promise.all([
+            client.from('cafes').select('*').or(`id.eq.${urlCafe},slug.eq.${urlCafe}`).maybeSingle(),
+            client.from('venues').select('*').eq('id', urlCafe).maybeSingle()
+          ]).then(([cRes, vRes]) => {
+            isFetchingCloudVenue = false;
+            const found = cRes?.data || vRes?.data;
+            if (found) {
+              const resolvedVenue = {
+                id: found.id,
+                cafe_id: found.id,
+                name: found.name,
+                slug: found.slug || found.id,
+                upi_id: found.upi_id || found.vpa_address || 'vanshwaghre-1@okicici',
+                status: found.status || 'active'
+              };
+              if (!Array.isArray(store.cafes)) store.cafes = [];
+              store.cafes.push(resolvedVenue);
+              store.venue = resolvedVenue;
+              store.save?.('ays_venue', store.venue);
+              if (typeof store.loadDishes === 'function') {
+                store.loadDishes(resolvedVenue.id).catch(() => {});
+              }
+              render();
+            } else {
+              cloudVenueNotFound = true;
+              render();
+            }
+          }).catch(() => {
+            isFetchingCloudVenue = false;
+            cloudVenueNotFound = true;
+            render();
+          });
+
+          container.innerHTML = `
+            <div class="customer-app min-h-screen bg-[#F7F8F9] text-[#181C2E] flex flex-col items-center justify-center font-sans p-6 text-center select-none">
+              <div class="max-w-md w-full bg-white border border-[#E3E8ED] rounded-3xl p-8 shadow-sm space-y-4">
+                <div class="w-12 h-12 rounded-2xl bg-[#FFF1E8] border border-[#FF7622]/30 flex items-center justify-center text-2xl mx-auto animate-pulse">
+                  🍽️
+                </div>
+                <h2 class="text-base font-bold text-[#181C2E]">Connecting to Café...</h2>
+                <p class="text-xs text-[#646982]">Retrieving fresh menu and table session</p>
+              </div>
+            </div>
+          `;
+          return;
+        }
+      }
     } else {
       targetTenant = (store.venue && store.venue.id) ? store.venue : (allCafes.find(c => c.status === 'active') || allCafes[0] || null);
     }

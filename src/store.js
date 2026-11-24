@@ -52,6 +52,8 @@ function getTestFixtures() {
 // Production Venue Configuration (Strictly maps to live Supabase venues table)
 export const INITIAL_VENUE = {
   id: 'cafe-first-way-cafe-hotc',
+  cafe_id: 'cafe-first-way-cafe-hotc',
+  slug: 'first-way-cafe',
   name: 'First Way Cafe',
   tagline: 'Artisanal Dining • Craft Brews • Woodfired Fare',
   address: 'Indiranagar 12th Main, Bengaluru',
