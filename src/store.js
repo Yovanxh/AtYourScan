@@ -2100,7 +2100,10 @@ export class ReactiveStore {
     const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
     if (!client) return [];
 
-    const targetVenue = venueId || this.venue?.id || 'cafe-first-way-cafe-hotc';
+    let targetVenue = venueId || this.venue?.id || 'cafe-first-way-cafe-hotc';
+    if (targetVenue === 'first-way-cafe' || targetVenue === 'First Way Cafe') {
+      targetVenue = 'cafe-first-way-cafe-hotc';
+    }
 
     try {
       // Hydrate official venue upi_id & real commercial name

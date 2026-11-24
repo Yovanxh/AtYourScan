@@ -33,10 +33,17 @@ export function renderCustomerView(container, store, options = {}) {
   const getVenueId = () => {
     if (typeof window !== 'undefined' && window.location) {
       const p = new URLSearchParams(window.location.search);
-      const q = p.get('cafe') || p.get('cafe_id') || p.get('cafeId') || p.get('venue');
-      if (q) return q;
+      let q = p.get('cafe') || p.get('cafe_id') || p.get('cafeId') || p.get('venue');
+      if (q) {
+        if (q === 'first-way-cafe' || q === 'First Way Cafe') return 'cafe-first-way-cafe-hotc';
+        return q;
+      }
       const pathMatch = window.location.pathname && window.location.pathname.match(/\/v\/([^\/]+)/);
-      if (pathMatch) return decodeURIComponent(pathMatch[1]);
+      if (pathMatch) {
+        let pv = decodeURIComponent(pathMatch[1]);
+        if (pv === 'first-way-cafe' || pv === 'First Way Cafe') return 'cafe-first-way-cafe-hotc';
+        return pv;
+      }
     }
     return store.venue?.id || 'cafe-first-way-cafe-hotc';
   };
@@ -2931,11 +2938,14 @@ export function renderCustomerView(container, store, options = {}) {
 
   // Trigger fresh menu load for venueId unconditionally (do NOT skip if cached)
   const triggerFreshMenuLoad = async () => {
-    if (typeof store.loadDishes === 'function' && venueId) {
+    if (typeof store.loadDishes === 'function') {
       try {
         isMenuLoading = !store.dishes || store.dishes.length === 0;
         if (isMenuLoading) render();
-        await store.loadDishes(venueId);
+        const effectiveVenue = (venueId === 'first-way-cafe' || venueId === 'First Way Cafe') 
+          ? 'cafe-first-way-cafe-hotc' 
+          : (venueId || store.venue?.id || 'cafe-first-way-cafe-hotc');
+        await store.loadDishes(effectiveVenue);
         isMenuLoading = false;
         menuLoadError = null;
       } catch (err) {
