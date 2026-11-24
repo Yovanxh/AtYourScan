@@ -208,6 +208,21 @@ suite.test('M2-QR-06: CustomerView switches venue environment when visiting new 
   cleanup?.();
 });
 
+suite.test('M2-QR-07: Invalid venue with pre-populated store.venue displays Venue Not Found without fallback', () => {
+  setupTestVenueAndTables();
+  assert.ok(store.venue && store.venue.id, 'store.venue should be pre-populated');
+  const fallbackVenueName = store.venue.name;
+
+  window.location.search = '?venue=invalid-venue-xyz&table=1';
+  const container = { innerHTML: '', querySelector() { return null; }, querySelectorAll() { return []; } };
+  const cleanup = renderCustomerView(container, store, { tableNumber: 1 });
+
+  assert.ok(container.innerHTML.includes('Venue Not Found'), 'Must display Venue Not Found when invalid venue parameter is scanned');
+  assert.equal(container.innerHTML.includes(fallbackVenueName), false, 'Must not display fallback restaurant name');
+  assert.equal(container.innerHTML.includes('Cold Brew Coffee'), false, 'Must not render menu of fallback venue');
+  cleanup?.();
+});
+
 // --------------------------------------------------------------------------
 // 2. Dish Availability Enforcement
 // --------------------------------------------------------------------------

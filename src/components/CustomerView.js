@@ -145,7 +145,7 @@ export function renderCustomerView(container, store, options = {}) {
       }
     }
 
-    const venue = store.venue || targetTenant;
+    const venue = urlCafe ? targetTenant : (store.venue || targetTenant);
 
     if (!venue || (!venue.name && !venue.id)) {
       container.innerHTML = `
