@@ -824,6 +824,15 @@ export class ReactiveStore {
             this.handleIncomingTableCartSync(payload.payload);
           }
         })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'menu_items' }, () => {
+          this.loadDishes(this.venue?.id).catch(() => {});
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'dishes' }, () => {
+          this.loadDishes(this.venue?.id).catch(() => {});
+        })
+        .on('postgres_changes', { event: '*', schema: 'public', table: 'categories' }, () => {
+          this.loadDishes(this.venue?.id).catch(() => {});
+        })
         .subscribe();
     } catch (e) {
       console.info('Supabase offline or connecting in local mode:', e.message);
@@ -2098,20 +2107,35 @@ export class ReactiveStore {
         cats = res.data || [];
       }
 
-      // 2. Fetch Dishes: Check 'dishes' table, or fallback to 'menu_items'
-      let { data: rawDishes } = await client.from('dishes').select('*').eq('venue_id', targetVenue);
-      if (!rawDishes || rawDishes.length === 0) {
-        const { data: menuItemsData } = await client.from('menu_items').select('*').eq('venue_id', targetVenue);
-        if (menuItemsData && menuItemsData.length > 0) {
-          rawDishes = menuItemsData;
-        } else {
-          const res = await client.from('dishes').select('*');
-          rawDishes = (res.data && res.data.length > 0) ? res.data : [];
-          if (!rawDishes || rawDishes.length === 0) {
-            const mRes = await client.from('menu_items').select('*');
-            rawDishes = mRes.data || [];
-          }
-        }
+      // 2. Fetch Dishes: Query BOTH 'dishes' and 'menu_items' concurrently and combine
+      const [dishesRes, menuItemsRes] = await Promise.all([
+        client.from('dishes').select('*').eq('venue_id', targetVenue),
+        client.from('menu_items').select('*').eq('venue_id', targetVenue)
+      ]);
+
+      let combinedRaw = [...(dishesRes.data || []), ...(menuItemsRes.data || [])];
+
+      // Fallback without venue_id filter if empty
+      if (combinedRaw.length === 0) {
+        const [allDishes, allMenuItems] = await Promise.all([
+          client.from('dishes').select('*'),
+          client.from('menu_items').select('*')
+        ]);
+        combinedRaw = [...(allDishes.data || []), ...(allMenuItems.data || [])];
+      }
+
+      // Deduplicate dishes by id or lowercase name
+      const seenDishIds = new Set();
+      const seenDishNames = new Set();
+      const rawDishes = [];
+      for (const d of combinedRaw) {
+        if (!d) continue;
+        const normName = (d.name || '').trim().toLowerCase();
+        if (d.id && seenDishIds.has(d.id)) continue;
+        if (normName && seenDishNames.has(normName)) continue;
+        if (d.id) seenDishIds.add(d.id);
+        if (normName) seenDishNames.add(normName);
+        rawDishes.push(d);
       }
 
       // 3. Build Category Lookup Map (ID -> Name & Name -> ID)
