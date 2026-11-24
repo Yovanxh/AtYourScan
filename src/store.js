@@ -201,11 +201,13 @@ export class ReactiveStore {
     } catch (e) {}
 
     const initialDishes = fixtures?.menuItems || (cachedDishes.length > 0 ? cachedDishes : INITIAL_MENU_ITEMS);
-    this.categories = cachedCats.length > 0 ? cachedCats : this.load('ays_categories', []);
+    this.categories = Array.isArray(cachedCats) && cachedCats.length > 0 ? [...cachedCats] : this.load('ays_categories', []);
     this.dishes = this.load('ays_dishes', initialDishes);
     if ((!this.dishes || this.dishes.length === 0) && cachedDishes.length > 0) {
-      this.dishes = cachedDishes;
+      this.dishes = [...cachedDishes];
     }
+    this.categories = Array.isArray(this.categories) ? [...this.categories] : [];
+    this.dishes = Array.isArray(this.dishes) ? [...this.dishes] : [];
     this.inventoryItems = this.load('ays_inventory_items', []);
     this.dishIngredients = this.load('ays_dish_ingredients', []);
     this.elevationExpiry = 0;
@@ -549,12 +551,13 @@ export class ReactiveStore {
   }
 
   load(key, fallback) {
-    if (typeof localStorage === 'undefined') return fallback;
+    const cloneFallback = () => Array.isArray(fallback) ? [...fallback] : (typeof fallback === 'object' && fallback !== null ? { ...fallback } : fallback);
+    if (typeof localStorage === 'undefined') return cloneFallback();
     try {
       const data = localStorage.getItem(key);
-      return data ? JSON.parse(data) : fallback;
+      return data ? JSON.parse(data) : cloneFallback();
     } catch {
-      return fallback;
+      return cloneFallback();
     }
   }
 
@@ -2016,15 +2019,19 @@ export class ReactiveStore {
     this.saveCatalog();
 
     try {
-      supabase?.from('categories')?.upsert({
-        id: newCategory.id,
-        outlet_id: venueId,
-        venue_id: venueId,
-        cafe_id: venueId,
-        name: newCategory.name,
-        course_type: newCategory.course_type,
-        dietary_scope: newCategory.dietary_scope
-      })?.then(() => {});
+      const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+      if (client && !isTestEnv) {
+        client.from('categories').upsert({
+          id: newCategory.id,
+          venue_id: venueId,
+          name: newCategory.name,
+          course: newCategory.course_type || 'Main Course',
+          dietary_scope: newCategory.dietary_scope || 'All',
+          display_order: this.categories.length
+        }).then(({ error }) => {
+          if (error) console.warn('[Store] createCategory Supabase note:', error.message);
+        });
+      }
     } catch {}
 
     this.notify({ type: 'CATEGORY_CREATED', category: newCategory });
@@ -2278,27 +2285,49 @@ export class ReactiveStore {
     this.saveCatalog();
 
     try {
-      supabase?.from('dishes')?.upsert({
-        id: newDish.id,
-        outlet_id: venueId,
-        venue_id: venueId,
-        cafe_id: venueId,
-        category_id: newDish.category_id,
-        name: newDish.name,
-        description: newDish.description,
-        image_url: newDish.image_url,
-        dietary_tag: newDish.dietary_tag,
-        price: newDish.price,
-        is_available: newDish.is_available
-      })?.then(() => {});
+      const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+      if (client && !isTestEnv) {
+        // 1. Sync to dishes table
+        client.from('dishes').upsert({
+          id: newDish.id,
+          venue_id: venueId,
+          category_id: newDish.category_id || null,
+          name: newDish.name,
+          description: newDish.description || '',
+          price: Number(newDish.price) || 0,
+          course: newDish.course || 'Main Course',
+          dietary_type: (newDish.dietary_tag || newDish.dietary || 'veg').toLowerCase(),
+          is_available: newDish.is_available !== false,
+          variants: Array.isArray(newDish.variations) ? newDish.variations : [],
+          image_url: newDish.image_url || ''
+        }).then(({ error }) => {
+          if (error) console.warn('[Store] createDish Supabase dishes note:', error.message);
+        });
 
-      if (dishData.ingredients && dishData.ingredients.length > 0) {
-        const rows = dishData.ingredients.map(ing => ({
-          dish_id: newDish.id,
-          inventory_item_id: ing.inventory_item_id,
-          quantity_required: ing.quantity_required
-        }));
-        supabase?.from('dish_ingredients')?.insert(rows)?.then(() => {});
+        // 2. Sync to menu_items table (used for order creation & atomic RPC)
+        client.from('menu_items').upsert({
+          id: newDish.id,
+          venue_id: venueId,
+          name: newDish.name,
+          price: Number(newDish.price) || 0,
+          category: newDish.category || (category ? category.name : 'General'),
+          description: newDish.description || '',
+          dietary_tag: newDish.dietary_tag || 'Veg',
+          is_available: newDish.is_available !== false,
+          stock_quantity: Number(newDish.stock_quantity) || 50,
+          image_url: newDish.image_url || ''
+        }).then(({ error }) => {
+          if (error) console.warn('[Store] createDish Supabase menu_items note:', error.message);
+        });
+
+        if (dishData.ingredients && dishData.ingredients.length > 0) {
+          const rows = dishData.ingredients.map(ing => ({
+            dish_id: newDish.id,
+            inventory_item_id: ing.inventory_item_id,
+            quantity_required: ing.quantity_required
+          }));
+          client.from('dish_ingredients').insert(rows).then(() => {});
+        }
       }
     } catch {}
 
@@ -2363,15 +2392,27 @@ export class ReactiveStore {
     this.saveCatalog();
 
     try {
-      supabase?.from('dishes')?.update({
-        name: targetDish.name,
-        description: targetDish.description,
-        price: targetDish.price,
-        dietary_tag: targetDish.dietary_tag || 'Veg',
-        is_available: targetDish.is_available,
-        image_url: targetDish.image_url,
-        category_id: targetDish.category_id
-      })?.eq('id', dishId)?.then(() => {});
+      const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+      if (client && !isTestEnv) {
+        client.from('dishes').update({
+          name: targetDish.name,
+          description: targetDish.description,
+          price: Number(targetDish.price) || 0,
+          dietary_type: (targetDish.dietary_tag || targetDish.dietary || 'veg').toLowerCase(),
+          is_available: targetDish.is_available,
+          image_url: targetDish.image_url,
+          category_id: targetDish.category_id
+        }).eq('id', dishId).then(() => {});
+
+        client.from('menu_items').update({
+          name: targetDish.name,
+          description: targetDish.description,
+          price: Number(targetDish.price) || 0,
+          dietary_tag: targetDish.dietary_tag || 'Veg',
+          is_available: targetDish.is_available,
+          image_url: targetDish.image_url
+        }).eq('id', dishId).then(() => {});
+      }
     } catch {}
 
     this.notify({ type: 'DISH_UPDATED', dishId, dish: targetDish });
@@ -2391,7 +2432,11 @@ export class ReactiveStore {
     this.save('ays_dish_ingredients', this.dishIngredients);
 
     try {
-      supabase?.from('dishes')?.delete()?.eq('id', dishId)?.then(() => {});
+      const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+      if (client && !isTestEnv) {
+        client.from('dishes').delete().eq('id', dishId).then(() => {});
+        client.from('menu_items').delete().eq('id', dishId).then(() => {});
+      }
     } catch {}
 
     this.notify({ type: 'DISH_DELETED', dishId });
@@ -4739,6 +4784,65 @@ export class ReactiveStore {
           }
         }
       }
+
+      // Explicit Cloud Persistence for entire batch to ensure QR scan & reload persistence
+      const client = this.supabase || (typeof window !== 'undefined' ? window.supabase : null) || supabase;
+      if (client && !isTestEnv) {
+        try {
+          if (this.categories.length > 0) {
+            const catRows = this.categories.map((c, idx) => ({
+              id: c.id,
+              venue_id: defaultVenueId,
+              name: c.name,
+              course: c.course_type || c.course || 'Main Course',
+              dietary_scope: c.dietary_scope || 'All',
+              display_order: idx + 1
+            }));
+            await client.from('categories').upsert(catRows);
+          }
+
+          if (this.dishes.length > 0) {
+            const dishRows = this.dishes.map(d => ({
+              id: d.id,
+              venue_id: defaultVenueId,
+              category_id: d.category_id || null,
+              name: d.name,
+              description: d.description || '',
+              price: Number(d.price) || 0,
+              course: d.course || 'Main Course',
+              dietary_type: (d.dietary_tag || d.dietary || 'veg').toLowerCase(),
+              is_available: d.is_available !== false,
+              variants: Array.isArray(d.variations) ? d.variations : (Array.isArray(d.variants) ? d.variants : []),
+              image_url: d.image_url || ''
+            }));
+            await client.from('dishes').upsert(dishRows);
+
+            const menuItemRows = this.dishes.map(d => ({
+              id: d.id,
+              venue_id: defaultVenueId,
+              name: d.name,
+              price: Number(d.price) || 0,
+              category: d.category || 'General',
+              description: d.description || '',
+              dietary_tag: d.dietary_tag || 'Veg',
+              is_available: d.is_available !== false,
+              stock_quantity: Number(d.stock_quantity) || 50,
+              image_url: d.image_url || ''
+            }));
+            await client.from('menu_items').upsert(menuItemRows);
+          }
+        } catch (cloudErr) {
+          console.warn('[Store] importParsedMenu bulk cloud sync note:', cloudErr);
+        }
+      }
+
+      // Update local storage caches so reload never loses anything
+      try {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('ays_dishes_cache', JSON.stringify(this.dishes));
+          localStorage.setItem('ays_categories_cache', JSON.stringify(this.categories));
+        }
+      } catch (e) {}
 
       this.recordAuditLog({
         action: 'MASTER_MENU_INGESTION',
