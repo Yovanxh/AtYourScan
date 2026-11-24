@@ -25,6 +25,9 @@ import { suite as superAdminSuite } from './super_admin_control_plane.test.mjs';
 import { suite as qrPipelineSuite } from './qr_realtime_order_pipeline.test.mjs';
 import { suite as multiRoleAuthSuite } from './multi_role_auth_gateway.test.mjs';
 import { suite as forgotPasswordSuite } from './forgot_password_otp.test.mjs';
+import { suite as m2CustomerWorkflowSuite } from './m2_customer_workflow.test.mjs';
+import { suite as m3OrderingUpgradeSuite } from './m3_ordering_system_upgrade.test.mjs';
+import { suite as m4TrackingPrivacySuite } from './m4_tracking_privacy.test.mjs';
 
 const suites = [
   authSuite, 
@@ -43,7 +46,10 @@ const suites = [
   superAdminSuite, 
   qrPipelineSuite,
   multiRoleAuthSuite,
-  forgotPasswordSuite
+  forgotPasswordSuite,
+  m2CustomerWorkflowSuite,
+  m3OrderingUpgradeSuite,
+  m4TrackingPrivacySuite
 ];
 
 async function runAllSuites() {

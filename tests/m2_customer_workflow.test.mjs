@@ -395,10 +395,9 @@ suite.test('M2-CAT-01: Empty category displays No dishes in this category withou
 });
 
 // Run standalone if executed directly
-suite.run().then(res => {
-  console.log(`\nMilestone M2 Tests: ${res.passed}/${res.total} passed (${res.failed} failed)`);
-  if (res.failed > 0) {
-    process.exit(1);
-  }
-  process.exit(0);
-});
+if (process.argv[1] && import.meta.url.endsWith(process.argv[1].replace(/\\/g, '/'))) {
+  suite.run().then(res => {
+    console.log(`\nMilestone M2 Tests: ${res.passed}/${res.total} passed (${res.failed} failed)`);
+    process.exit(res.failed > 0 ? 1 : 0);
+  });
+}

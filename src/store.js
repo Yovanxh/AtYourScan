@@ -1627,9 +1627,9 @@ export class ReactiveStore {
     const tNum = parseInt(tableNum, 10);
     if (isNaN(tNum)) return;
     const vId = venueId || this.venue?.id || 'default';
-    this.cart.table_number = tNum;
-    this.cart.venue_id = vId;
-    this._cartVenueId = vId;
+    if (!this.cart) {
+      this.cart = { table_number: tNum, venue_id: vId, items: [], notes: '' };
+    }
 
     const scopedKey = `ays_cart_${vId}_${tNum}`;
     const legacyKey = `ays_cart_table_${tNum}`;
@@ -1637,20 +1637,38 @@ export class ReactiveStore {
     if (cached && Array.isArray(cached.items)) {
       this.cart.table_number = tNum;
       this.cart.venue_id = vId;
+      this._cartVenueId = vId;
       this.cart.items = cached.items;
       this.cart.notes = cached.notes || '';
     } else {
-      // No cached cart found for this venue and table -> strictly reset items and notes
+      // No cached cart found for this venue and table in storage.
+      // Check whether active in-memory cart belongs to a different venue or different table.
+      const isDifferentVenue = Boolean(
+        (this.cart.venue_id && this.cart.venue_id !== vId) ||
+        (!this.cart.venue_id && this.venue?.id && this.venue.id !== vId)
+      );
+      const isDifferentTable = Boolean(
+        this.cart.table_number !== null &&
+        this.cart.table_number !== undefined &&
+        this.cart.table_number !== tNum
+      );
+
+      if (isDifferentVenue || isDifferentTable || !Array.isArray(this.cart.items)) {
+        // Switching to a different venue or different table with no cached cart -> reset
+        this.cart.items = [];
+        this.cart.notes = '';
+      }
+      // Preserve existing in-memory cart items if already on the same table and venue,
+      // while binding active table and venue IDs.
       this.cart.table_number = tNum;
       this.cart.venue_id = vId;
-      this.cart.items = [];
-      this.cart.notes = '';
+      this._cartVenueId = vId;
     }
   }
 
   syncTableCart() {
     const tableNum = this.cart.table_number;
-    const vId = this.cart.venue_id || this.venue?.id || 'default';
+    const vId = this.venue?.id || this.cart.venue_id || 'default';
     this.cart.venue_id = vId;
     if (!tableNum) {
       this.save(`ays_cart_${vId}`, this.cart);
@@ -1770,7 +1788,7 @@ export class ReactiveStore {
 
   clearCart(targetTableNumber = null) {
     const tableNum = targetTableNumber || this.cart.table_number;
-    const vId = this.cart.venue_id || this.venue?.id || 'default';
+    const vId = this.venue?.id || this.cart.venue_id || 'default';
     this.cart.items = [];
     this.cart.notes = '';
     this.cart.venue_id = vId;
